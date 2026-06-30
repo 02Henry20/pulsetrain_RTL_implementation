@@ -1,0 +1,297 @@
+#; samsung 28nm - ICC2 ( Example : Function description for TDF function)
+#; TDF : Top Design Format file
+#; By Seungsik Moon 
+
+# No Defining the Die Area
+# Die area is defined at init_design.tcl in rm_icc2_pnr_script folder
+
+
+move_object	[get_cell bond1]	-rotate_by CW90
+move_object	[get_cell bond2]	-rotate_by CW90
+move_object	[get_cell bond3]	-rotate_by CW90
+move_object	[get_cell bond4]	-rotate_by CW90
+move_object	[get_cell bond5]	-rotate_by CW90
+move_object	[get_cell bond6]	-rotate_by CW90
+move_object	[get_cell bond7]	-rotate_by CW90
+move_object	[get_cell bond8]	-rotate_by CW90
+move_object	[get_cell bond9]	-rotate_by CW90
+move_object	[get_cell bond10]	-rotate_by CW90
+move_object	[get_cell bond11]	-rotate_by CW90
+move_object	[get_cell bond12]	-rotate_by CW90
+move_object	[get_cell bond13]	-rotate_by CW90
+move_object	[get_cell bond14]	-rotate_by CW90
+move_object	[get_cell bond15]	-rotate_by CW90
+move_object	[get_cell bond16]	-rotate_by CW90
+move_object	[get_cell bond17]	-rotate_by CW90
+move_object	[get_cell bond18]	-rotate_by CW90
+move_object	[get_cell bond19]	-rotate_by CW90
+move_object	[get_cell bond20]	-rotate_by CW90
+move_object	[get_cell bond21]	-rotate_by CW90
+move_object	[get_cell bond22]	-rotate_by CW90
+move_object	[get_cell bond23]	-rotate_by CW90
+move_object	[get_cell bond24]	-rotate_by CW90
+move_object	[get_cell bond25]	-rotate_by CW90
+move_object	[get_cell bond26]	-rotate_by CW90
+move_object	[get_cell bond27]	-rotate_by CW90
+move_object	[get_cell bond28]	-rotate_by CW90
+move_object	[get_cell bond29]	-rotate_by CW90
+move_object	[get_cell bond30]	-rotate_by CW90
+move_object	[get_cell bond31]	-rotate_by CW90
+move_object	[get_cell bond32]	-rotate_by CW90
+move_object	[get_cell bond33]	-rotate_by CW90
+move_object	[get_cell bond34]	-rotate_by CW90
+move_object	[get_cell bond35]	-rotate_by CW90
+move_object	[get_cell bond36]	-rotate_by CW90
+move_object	[get_cell bond37]	-rotate_by CW90
+move_object	[get_cell bond38]	-rotate_by CW90
+move_object	[get_cell bond39]	-rotate_by CW90
+move_object	[get_cell bond40]	-rotate_by CW90
+
+move_object	[get_cell bond81]	-rotate_by CW270
+move_object	[get_cell bond82]	-rotate_by CW270
+move_object	[get_cell bond83]	-rotate_by CW270
+move_object	[get_cell bond84]	-rotate_by CW270
+move_object	[get_cell bond85]	-rotate_by CW270
+move_object	[get_cell bond86]	-rotate_by CW270
+move_object	[get_cell bond87]	-rotate_by CW270
+move_object	[get_cell bond88]	-rotate_by CW270
+move_object	[get_cell bond89]	-rotate_by CW270
+move_object	[get_cell bond90]	-rotate_by CW270
+move_object	[get_cell bond91]	-rotate_by CW270
+move_object	[get_cell bond92]	-rotate_by CW270
+move_object	[get_cell bond93]	-rotate_by CW270
+move_object	[get_cell bond94]	-rotate_by CW270
+move_object	[get_cell bond95]	-rotate_by CW270
+move_object	[get_cell bond96]	-rotate_by CW270
+move_object	[get_cell bond97]	-rotate_by CW270
+move_object	[get_cell bond98]	-rotate_by CW270
+move_object	[get_cell bond99]	-rotate_by CW270
+move_object	[get_cell bond100]	-rotate_by CW270
+move_object	[get_cell bond101]	-rotate_by CW270
+move_object	[get_cell bond102]	-rotate_by CW270
+move_object	[get_cell bond103]	-rotate_by CW270
+move_object	[get_cell bond104]	-rotate_by CW270
+move_object	[get_cell bond105]	-rotate_by CW270
+move_object	[get_cell bond106]	-rotate_by CW270
+move_object	[get_cell bond107]	-rotate_by CW270
+move_object	[get_cell bond108]	-rotate_by CW270
+move_object	[get_cell bond109]	-rotate_by CW270
+move_object	[get_cell bond110]	-rotate_by CW270
+move_object	[get_cell bond111]	-rotate_by CW270
+move_object	[get_cell bond112]	-rotate_by CW270
+move_object	[get_cell bond113]	-rotate_by CW270
+move_object	[get_cell bond114]	-rotate_by CW270
+move_object	[get_cell bond115]	-rotate_by CW270
+move_object	[get_cell bond116]	-rotate_by CW270
+move_object	[get_cell bond117]	-rotate_by CW270
+move_object	[get_cell bond118]	-rotate_by CW270
+move_object	[get_cell bond119]	-rotate_by CW270
+move_object	[get_cell bond120]	-rotate_by CW270
+
+move_object	[get_cell bond121]	-rotate_by CW180
+move_object	[get_cell bond122]	-rotate_by CW180
+move_object	[get_cell bond123]	-rotate_by CW180
+move_object	[get_cell bond124]	-rotate_by CW180
+move_object	[get_cell bond125]	-rotate_by CW180
+move_object	[get_cell bond126]	-rotate_by CW180
+move_object	[get_cell bond127]	-rotate_by CW180
+move_object	[get_cell bond128]	-rotate_by CW180
+move_object	[get_cell bond129]	-rotate_by CW180
+move_object	[get_cell bond130]	-rotate_by CW180
+move_object	[get_cell bond131]	-rotate_by CW180
+move_object	[get_cell bond132]	-rotate_by CW180
+move_object	[get_cell bond133]	-rotate_by CW180
+move_object	[get_cell bond134]	-rotate_by CW180
+move_object	[get_cell bond135]	-rotate_by CW180
+move_object	[get_cell bond136]	-rotate_by CW180
+move_object	[get_cell bond137]	-rotate_by CW180
+move_object	[get_cell bond138]	-rotate_by CW180
+move_object	[get_cell bond139]	-rotate_by CW180
+move_object	[get_cell bond140]	-rotate_by CW180
+move_object	[get_cell bond141]	-rotate_by CW180
+move_object	[get_cell bond142]	-rotate_by CW180
+move_object	[get_cell bond143]	-rotate_by CW180
+move_object	[get_cell bond144]	-rotate_by CW180
+move_object	[get_cell bond145]	-rotate_by CW180
+move_object	[get_cell bond146]	-rotate_by CW180
+move_object	[get_cell bond147]	-rotate_by CW180
+move_object	[get_cell bond148]	-rotate_by CW180
+move_object	[get_cell bond149]	-rotate_by CW180
+move_object	[get_cell bond150]	-rotate_by CW180
+move_object	[get_cell bond151]	-rotate_by CW180
+move_object	[get_cell bond152]	-rotate_by CW180
+move_object	[get_cell bond153]	-rotate_by CW180
+move_object	[get_cell bond154]	-rotate_by CW180
+move_object	[get_cell bond155]	-rotate_by CW180
+move_object	[get_cell bond156]	-rotate_by CW180
+move_object	[get_cell bond157]	-rotate_by CW180
+move_object	[get_cell bond158]	-rotate_by CW180
+move_object	[get_cell bond159]	-rotate_by CW180
+move_object	[get_cell bond160]	-rotate_by CW180
+
+
+move_object	[get_cell bond1]	-to {0 299}
+move_object	[get_cell bond2]	-to {0 414}
+move_object	[get_cell bond3]	-to {0 499}
+move_object	[get_cell bond4]	-to {0 584}
+move_object	[get_cell bond5]	-to {0 669}
+move_object	[get_cell bond6]	-to {0 754}
+move_object	[get_cell bond7]	-to {0 839}
+move_object	[get_cell bond8]	-to {0 924}
+move_object	[get_cell bond9]	-to {0 1009}
+move_object	[get_cell bond10]	-to {0 1094}
+move_object	[get_cell bond11]	-to {0 1179}
+move_object	[get_cell bond12]	-to {0 1264}
+move_object	[get_cell bond13]	-to {0 1349}
+move_object	[get_cell bond14]	-to {0 1434}
+move_object	[get_cell bond15]	-to {0 1519}
+move_object	[get_cell bond16]	-to {0 1604}
+move_object	[get_cell bond17]	-to {0 1689}
+move_object	[get_cell bond18]	-to {0 1774}
+move_object	[get_cell bond19]	-to {0 1859}
+move_object	[get_cell bond20]	-to {0 1944}
+move_object	[get_cell bond21]	-to {0 2029}
+move_object	[get_cell bond22]	-to {0 2114}
+move_object	[get_cell bond23]	-to {0 2199}
+move_object	[get_cell bond24]	-to {0 2284}
+move_object	[get_cell bond25]	-to {0 2369}
+move_object	[get_cell bond26]	-to {0 2454}
+move_object	[get_cell bond27]	-to {0 2539}
+move_object	[get_cell bond28]	-to {0 2624}
+move_object	[get_cell bond29]	-to {0 2709}
+move_object	[get_cell bond30]	-to {0 2794}
+move_object	[get_cell bond31]	-to {0 2879}
+move_object	[get_cell bond32]	-to {0 2964}
+move_object	[get_cell bond33]	-to {0 3049}
+move_object	[get_cell bond34]	-to {0 3134}
+move_object	[get_cell bond35]	-to {0 3219}
+move_object	[get_cell bond36]	-to {0 3304}
+move_object	[get_cell bond37]	-to {0 3389}
+move_object	[get_cell bond38]	-to {0 3474}
+move_object	[get_cell bond39]	-to {0 3589}
+move_object	[get_cell bond40]	-to {0 3719}
+
+move_object	[get_cell bond41]	-to {3624 0}
+move_object	[get_cell bond42]	-to {3509 0}
+move_object	[get_cell bond43]	-to {3424 0}
+move_object	[get_cell bond44]	-to {3339 0}
+move_object	[get_cell bond45]	-to {3254 0}
+move_object	[get_cell bond46]	-to {3169 0}
+move_object	[get_cell bond47]	-to {3084 0}
+move_object	[get_cell bond48]	-to {2999 0}
+move_object	[get_cell bond49]	-to {2914 0}
+move_object	[get_cell bond50]	-to {2829 0}
+move_object	[get_cell bond51]	-to {2744 0}
+move_object	[get_cell bond52]	-to {2659 0}
+move_object	[get_cell bond53]	-to {2574 0}
+move_object	[get_cell bond54]	-to {2489 0}
+move_object	[get_cell bond55]	-to {2404 0}
+move_object	[get_cell bond56]	-to {2319 0}
+move_object	[get_cell bond57]	-to {2234 0}
+move_object	[get_cell bond58]	-to {2149 0}
+move_object	[get_cell bond59]	-to {2064 0}
+move_object	[get_cell bond60]	-to {1979 0}
+move_object	[get_cell bond61]	-to {1894 0}
+move_object	[get_cell bond62]	-to {1809 0}
+move_object	[get_cell bond63]	-to {1724 0}
+move_object	[get_cell bond64]	-to {1639 0}
+move_object	[get_cell bond65]	-to {1554 0}
+move_object	[get_cell bond66]	-to {1469 0}
+move_object	[get_cell bond67]	-to {1384 0}
+move_object	[get_cell bond68]	-to {1299 0}
+move_object	[get_cell bond69]	-to {1214 0}
+move_object	[get_cell bond70]	-to {1129 0}
+move_object	[get_cell bond71]	-to {1044 0}
+move_object	[get_cell bond72]	-to {959  0}
+move_object	[get_cell bond73]	-to {874  0}
+move_object	[get_cell bond74]	-to {789  0}
+move_object	[get_cell bond75]	-to {704  0}
+move_object	[get_cell bond76]	-to {619  0}
+move_object	[get_cell bond77]	-to {534  0}
+move_object	[get_cell bond78]	-to {449  0}
+move_object	[get_cell bond79]	-to {334  0}
+move_object	[get_cell bond80]	-to {204  0}
+
+move_object	[get_cell bond81]	-to {3828 3624}
+move_object	[get_cell bond82]	-to {3828 3509}
+move_object	[get_cell bond83]	-to {3828 3424}
+move_object	[get_cell bond84]	-to {3828 3339}
+move_object	[get_cell bond85]	-to {3828 3254}
+move_object	[get_cell bond86]	-to {3828 3169}
+move_object	[get_cell bond87]	-to {3828 3084}
+move_object	[get_cell bond88]	-to {3828 2999}
+move_object	[get_cell bond89]	-to {3828 2914}
+move_object	[get_cell bond90]	-to {3828 2829}
+move_object	[get_cell bond91]	-to {3828 2744}
+move_object	[get_cell bond92]	-to {3828 2659}
+move_object	[get_cell bond93]	-to {3828 2574}
+move_object	[get_cell bond94]	-to {3828 2489}
+move_object	[get_cell bond95]	-to {3828 2404}
+move_object	[get_cell bond96]	-to {3828 2319}
+move_object	[get_cell bond97]	-to {3828 2234}
+move_object	[get_cell bond98]	-to {3828 2149}
+move_object	[get_cell bond99]	-to {3828 2064}
+move_object	[get_cell bond100]	-to {3828 1979}
+move_object	[get_cell bond101]	-to {3828 1894}
+move_object	[get_cell bond102]	-to {3828 1809}
+move_object	[get_cell bond103]	-to {3828 1724}
+move_object	[get_cell bond104]	-to {3828 1639}
+move_object	[get_cell bond105]	-to {3828 1554}
+move_object	[get_cell bond106]	-to {3828 1469}
+move_object	[get_cell bond107]	-to {3828 1384}
+move_object	[get_cell bond108]	-to {3828 1299}
+move_object	[get_cell bond109]	-to {3828 1214}
+move_object	[get_cell bond110]	-to {3828 1129}
+move_object	[get_cell bond111]	-to {3828 1044}
+move_object	[get_cell bond112]	-to {3828 959 }
+move_object	[get_cell bond113]	-to {3828 874 }
+move_object	[get_cell bond114]	-to {3828 789 }
+move_object	[get_cell bond115]	-to {3828 704 }
+move_object	[get_cell bond116]	-to {3828 619 }
+move_object	[get_cell bond117]	-to {3828 534 }
+move_object	[get_cell bond118]	-to {3828 449 }
+move_object	[get_cell bond119]	-to {3828 334 }
+move_object	[get_cell bond120]	-to {3828 204 }
+
+move_object	[get_cell bond121]	-to {299 3828}
+move_object	[get_cell bond122]	-to {414 3828}
+move_object	[get_cell bond123]	-to {499 3828}
+move_object	[get_cell bond124]	-to {584 3828}
+move_object	[get_cell bond125]	-to {669 3828}
+move_object	[get_cell bond126]	-to {754 3828}
+move_object	[get_cell bond127]	-to {839 3828}
+move_object	[get_cell bond128]	-to {924 3828}
+move_object	[get_cell bond129]	-to {1009 3828}
+move_object	[get_cell bond130]	-to {1094 3828}
+move_object	[get_cell bond131]	-to {1179 3828}
+move_object	[get_cell bond132]	-to {1264 3828}
+move_object	[get_cell bond133]	-to {1349 3828}
+move_object	[get_cell bond134]	-to {1434 3828}
+move_object	[get_cell bond135]	-to {1519 3828}
+move_object	[get_cell bond136]	-to {1604 3828}
+move_object	[get_cell bond137]	-to {1689 3828}
+move_object	[get_cell bond138]	-to {1774 3828}
+move_object	[get_cell bond139]	-to {1859 3828}
+move_object	[get_cell bond140]	-to {1944 3828}
+move_object	[get_cell bond141]	-to {2029 3828}
+move_object	[get_cell bond142]	-to {2114 3828}
+move_object	[get_cell bond143]	-to {2199 3828}
+move_object	[get_cell bond144]	-to {2284 3828}
+move_object	[get_cell bond145]	-to {2369 3828}
+move_object	[get_cell bond146]	-to {2454 3828}
+move_object	[get_cell bond147]	-to {2539 3828}
+move_object	[get_cell bond148]	-to {2624 3828}
+move_object	[get_cell bond149]	-to {2709 3828}
+move_object	[get_cell bond150]	-to {2794 3828}
+move_object	[get_cell bond151]	-to {2879 3828}
+move_object	[get_cell bond152]	-to {2964 3828}
+move_object	[get_cell bond153]	-to {3049 3828}
+move_object	[get_cell bond154]	-to {3134 3828}
+move_object	[get_cell bond155]	-to {3219 3828}
+move_object	[get_cell bond156]	-to {3304 3828}
+move_object	[get_cell bond157]	-to {3389 3828}
+move_object	[get_cell bond158]	-to {3474 3828}
+move_object	[get_cell bond159]	-to {3589 3828}
+move_object	[get_cell bond160]	-to {3719 3828}
+
+

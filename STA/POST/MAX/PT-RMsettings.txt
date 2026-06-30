@@ -1,0 +1,39 @@
+##############################################################
+# Reference methodology option settings selected by the user.
+#
+# Copyright (C) 2019 Synopsys, Inc. All rights reserved.
+##############################################################
+ 
+Option Name:  Setting
+=====================
+Flow:  PT
+Back Annotation Mode:  SPEF
+HyperScale:  FALSE
+CSS Waveform Propagation:  FALSE
+Distributed Multi-Scenario Mode:  FALSE
+Multivoltage Scaling Mode:  FALSE
+UPF Mode:  FALSE
+Clock Gating and Threshold Voltage Group Reporting:  FALSE
+Power Analysis:  OFF
+ECO Mode:  LOGICAL
+Fix Power ECO:  FALSE
+Fix DRC ECO:  FALSE
+Fix Timing ECO:  TRUE
+Fix Setup:  COMBINATIONAL
+Fix Hold:  OFF
+Estimate Unfixable Reason:  TRUE
+Fix Leakage ECO:  FALSE
+Constraint Analysis:  FALSE
+Link to TetraMax:  FALSE
+OCV Mode:  OFF
+CRPR Mode:  TRUE
+CRPR Mode Normal Same:  NORMAL
+Derate Mode:  FALSE
+Auto Clock Mux:  FALSE
+Save Session:  TRUE
+Timing Models:  GENERATION
+Path-Based Analysis:  FALSE
+Reports:  STANDARD
+ECO Flow:  TRUE
+Lynx Compatible:  FALSE
+

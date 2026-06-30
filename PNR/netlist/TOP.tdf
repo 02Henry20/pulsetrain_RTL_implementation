@@ -1,0 +1,380 @@
+#; samsung 28nm - ICC2 ( Example : Function description for TDF function)
+#; TDF : Top Design Format file
+#; By Sun, Hye-Seung / KAIST IDEC
+#; revision history
+#; DATE : 2019.11.19  by Hye-Seung Sun
+
+# No Defining the Die Area
+# Die area is defined at init_design.tcl in rm_icc2_pnr_script folder
+
+# Below is ICC2 style
+create_io_guide -name "LEFT" -side left -line {{0 0} 3958} -pad_cells { \
+                                              pad40 \
+                                              pad39 \
+                                              pad38 \
+                                              pad37 \
+                                              pad36 \
+                                              pad35 \
+                                              pad34 \
+                                              pad33 \
+                                              pad32 \
+                                              pad31 \
+                                              pad30 \
+                                              pad29 \
+                                              pad28 \
+                                              pad27 \
+                                              pad26 \
+                                              pad25 \
+                                              pad24 \
+                                              pad23 \
+                                              pad22 \
+                                              pad21 \
+                                              pad20 \
+                                              pad19 \
+                                              pad18 \
+                                              pad17 \
+                                              pad16 \
+                                              pad15 \
+                                              pad14 \
+                                              pad13 \
+                                              pad12 \
+                                              pad11 \
+                                              pad10 \
+                                              pad9 \
+                                              pad8 \
+                                              pad7 \
+                                              pad6 \
+                                              pad5 \
+                                              pad4 \
+                                              pad3 \
+                                              pad2 \
+                                              pad1 \
+}
+create_io_guide -name "TOP" -side top -line {{0 3958} 3958} -pad_cells { \
+                                              pad160 \
+                                              pad159 \
+                                              pad158 \
+                                              pad157 \
+					      pad156 \
+                                              pad155 \
+                                              pad154 \
+                                              pad153 \
+                                              pad152 \
+                                              pad151 \
+                                              pad150 \
+                                              pad149 \
+                                              pad148 \
+                                              pad147 \
+                                              pad146 \
+                                              pad145 \
+                                              pad144 \
+                                              pad143 \
+                                              pad142 \
+                                              pad141 \
+                                              pad140 \
+                                              pad139 \
+                                              pad138 \
+                                              pad137 \
+                                              pad136 \
+                                              pad135 \
+                                              pad134 \
+                                              pad133 \
+                                              pad132 \
+                                              pad131 \
+                                              pad130 \
+                                              pad129 \
+                                              pad128 \
+                                              pad127 \
+                                              pad126 \
+                                              pad125 \
+                                              pad124 \
+                                              pad123 \
+                                              pad122 \
+                                              pad121 \
+}
+create_io_guide -name "RIGHT" -side right -line {{3958 3958} 3958} -pad_cells { \
+                                              pad120 \
+                                              pad119 \
+                                              pad118 \
+                                              pad117 \
+                                              pad116 \
+                                              pad115 \
+                                              pad114 \
+                                              pad113 \
+                                              pad112 \
+                                              pad111 \
+                                              pad110 \
+                                              pad109 \
+                                              pad108 \
+                                              pad107 \
+                                              pad106 \
+                                              pad105 \
+					      pad104 \
+                                              pad103 \
+                                              pad102 \
+                                              pad101 \
+                                              pad100 \
+                                              pad99  \
+                                              pad98  \
+                                              pad97  \
+                                              pad96  \
+                                              pad95  \
+                                              pad94  \
+                                              pad93  \
+                                              pad92  \
+                                              pad91  \
+                                              pad90  \
+                                              pad89  \
+                                              pad88  \
+                                              pad87  \
+                                              pad86  \
+                                              pad85  \
+                                              pad84  \
+                                              pad83  \
+                                              pad82  \
+                                              pad81  \
+}
+create_io_guide -name "BOTTOM" -side bottom -line {{3958 0} 3958} -pad_cells { \
+                                              pad80  \
+                                              pad79  \
+                                              pad78  \
+                                              pad77  \
+                                              pad76  \
+                                              pad75  \
+                                              pad74  \
+                                              pad73  \
+                                              pad72  \
+                                              pad71  \
+                                              pad70  \
+                                              pad69  \
+                                              pad68  \
+                                              pad67  \
+                                              pad66  \
+                                              pad65  \
+                                              pad64  \
+                                              pad63  \
+                                              pad62  \
+                                              pad61  \
+                                              pad60  \
+                                              pad59  \
+                                              pad58  \
+                                              pad57  \
+                                              pad56  \
+                                              pad55  \
+                                              pad54  \
+                                              pad53  \
+                                              pad52  \
+                                              pad51  \
+                                              pad50  \
+                                              pad49  \
+                                              pad48  \
+                                              pad47  \
+                                              pad46  \
+                                              pad45  \
+                                              pad44  \
+                                              pad43  \
+                                              pad42  \
+                                              pad41  \
+}
+
+
+#;Left pad
+#set_signal_io_constraints -io_guide_object north \
+#            -constraint {{pad1} {pad2} {pad3} {pad4}}
+# {{absolute} pad1 500}{{absolute} pad2 1005}
+
+# The  following  example  forces  a  specific  placement  of  three  pad
+#       instances in I/O guide named "north". All  pad  locations  are  exactly
+#       calculated  based  on the spacing in the constraints. 
+#       Specifically, the distance before pad1 is 20 micron. 
+#       The gap between pad1 and pad2 is  45 micron. 
+#       Pad2 and pad3 are abutted. There may be space after pad3 if the IO guide is very wide.
+
+#         prompt> set_signal_io_constraints -io_guide_object north \
+#            -constraint {{{no_space} begin} {20 pad1 45 pad2 pad3} }
+
+set_signal_io_constraints -io_guide_object LEFT \
+            -constraint {{{no_space} begin} {\
+					      299 pad40 \
+					      80 pad39 \
+					      50 pad38 \
+					      50 pad37 \
+					      50 pad36 \
+					      50 pad35 \
+					      50 pad34 \
+					      50 pad33 \
+					      50 pad32 \
+					      50 pad31 \
+					      50 pad30 \
+					      50 pad29 \
+					      50 pad28 \
+					      50 pad27 \
+					      50 pad26 \
+					      50 pad25 \
+					      50 pad24 \
+					      50 pad23 \
+					      50 pad22 \
+					      50 pad21 \
+					      50 pad20 \
+					      50 pad19 \
+					      50 pad18 \
+					      50 pad17 \
+					      50 pad16 \
+					      50 pad15 \
+					      50 pad14 \
+					      50 pad13 \
+					      50 pad12 \
+					      50 pad11 \
+					      50 pad10 \
+					      50 pad9 \
+					      50 pad8 \
+					      50 pad7 \
+					      50 pad6 \
+					      50 pad5 \
+					      50 pad4 \
+					      50 pad3 \
+					      80 pad2 \
+					      95 pad1 \
+					    } 
+}
+
+set_signal_io_constraints -io_guide_object TOP \
+            -constraint {{{no_space} begin} {\
+					      299 pad160 \
+					      80 pad159 \
+					      50 pad158 \
+					      50 pad157 \
+					      50 pad156 \
+					      50 pad155 \
+					      50 pad154 \
+					      50 pad153 \
+					      50 pad152 \
+					      50 pad151 \
+					      50 pad150 \
+					      50 pad149 \
+					      50 pad148 \
+					      50 pad147 \
+					      50 pad146 \
+					      50 pad145 \
+					      50 pad144 \
+					      50 pad143 \
+					      50 pad142 \
+					      50 pad141 \
+					      50 pad140 \
+					      50 pad139 \
+					      50 pad138 \
+					      50 pad137 \
+					      50 pad136 \
+					      50 pad135 \
+					      50 pad134 \
+					      50 pad133 \
+					      50 pad132 \
+					      50 pad131 \
+					      50 pad130 \
+					      50 pad129 \
+					      50 pad128 \
+					      50 pad127 \
+					      50 pad126 \
+					      50 pad125 \
+					      50 pad124 \
+					      50 pad123 \
+					      80 pad122 \
+					      95 pad121 \
+					    } 
+}
+set_signal_io_constraints -io_guide_object RIGHT \
+            -constraint {{{no_space} begin} {\
+					      299 pad120 \
+					      80 pad119 \
+					      50 pad118 \
+					      50 pad117 \
+					      50 pad116 \
+					      50 pad115 \
+					      50 pad114 \
+					      50 pad113 \
+					      50 pad112 \
+					      50 pad111 \
+					      50 pad110 \
+					      50 pad109 \
+					      50 pad108 \
+					      50 pad107 \
+					      50 pad106 \
+					      50 pad105 \
+					      50 pad104 \
+					      50 pad103 \
+					      50 pad102 \
+					      50 pad101 \
+					      50 pad100 \
+					      50 pad99 \
+					      50 pad98 \
+					      50 pad97 \
+					      50 pad96 \
+					      50 pad95 \
+					      50 pad94 \
+					      50 pad93 \
+					      50 pad92 \
+					      50 pad91 \
+					      50 pad90 \
+					      50 pad89 \
+					      50 pad88 \
+					      50 pad87 \
+					      50 pad86 \
+					      50 pad85 \
+					      50 pad84 \
+					      50 pad83 \
+					      80 pad82 \
+					      95 pad81 \
+					    } 
+}
+set_signal_io_constraints -io_guide_object BOTTOM \
+            -constraint {{{no_space} begin} {\
+					      299 pad80 \
+					      80 pad79 \
+					      50 pad78 \
+					      50 pad77 \
+					      50 pad76 \
+					      50 pad75 \
+					      50 pad74 \
+					      50 pad73 \
+					      50 pad72 \
+					      50 pad71 \
+					      50 pad70 \
+					      50 pad69 \
+					      50 pad68 \
+					      50 pad67 \
+					      50 pad66 \
+					      50 pad65 \
+					      50 pad64 \
+					      50 pad63 \
+					      50 pad62 \
+					      50 pad61 \
+					      50 pad60 \
+					      50 pad59 \
+					      50 pad58 \
+					      50 pad57 \
+					      50 pad56 \
+					      50 pad55 \
+					      50 pad54 \
+					      50 pad53 \
+					      50 pad52 \
+					      50 pad51 \
+					      50 pad50 \
+					      50 pad49 \
+					      50 pad48 \
+					      50 pad47 \
+					      50 pad46 \
+					      50 pad45 \
+					      50 pad44 \
+					      50 pad43 \
+					      80 pad42 \
+					      95 pad41 \
+					    } 
+}
+
+# Create corners : ICC2 style
+# between the I/O guides LEFT and TOP
+create_io_corner_cell -reference_cell PCORNER_18_18_NT_DR {LEFT TOP}
+create_io_corner_cell -reference_cell PCORNER_18_18_NT_DR {TOP RIGHT}
+create_io_corner_cell -reference_cell PCORNER_18_18_NT_DR {RIGHT BOTTOM}
+create_io_corner_cell -reference_cell PCORNER_18_18_NT_DR {BOTTOM LEFT}
+

@@ -1,0 +1,5 @@
+mode_norm.OC_rvt_ss_max_0p900v_125c.RC_MAX ../../../../PDK/tech/Star/LN28LPP_StarRC_Cell_S00-V1.1.0.1_SEC2.0.6.0/CELL_LEVEL/LN28LPP_StarRC_Cell_S00-V1.1.0.1_SEC2.0.6.0/tcad/7U1x_2T8x_LB/ln28lpp_7U1x_2T8x_LB_SigRCmax_detailed.nxtgrd
+
+mode_norm.OC_rvt_ff_min_1p100v_m40c.RC_MIN ../../../../PDK/tech/Star/LN28LPP_StarRC_Cell_S00-V1.1.0.1_SEC2.0.6.0/CELL_LEVEL/LN28LPP_StarRC_Cell_S00-V1.1.0.1_SEC2.0.6.0/tcad/7U1x_2T8x_LB/ln28lpp_7U1x_2T8x_LB_SigRCmin_detailed.nxtgrd
+
+

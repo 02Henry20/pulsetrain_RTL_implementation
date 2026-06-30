@@ -1,0 +1,2 @@
+pt_shell -f script/timing_script.tcl | tee -i log/pt_timing.log
+

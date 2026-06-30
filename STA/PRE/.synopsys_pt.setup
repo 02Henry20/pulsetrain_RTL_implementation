@@ -1,0 +1,34 @@
+set_host_option -max_cores 16
+
+set PDK /data/S28
+
+set std_library_path $PDK/library/ln28lpp_sc_9t_base_rvt_c130_V1.00c_pkg/FE-Common_sec190802_0203/LIBERTY
+
+set gpio_library_path $PDK/library/ln28lpp_gpio_1p8v_V1.00a_pkg/FE-Common_sec190321_0300/LIBERTY/synopsys
+
+set RAM_path "$PDK/library/memory/batch_script/FE-Common_sec190812_0141/MemoryCompiler_FE/batch_script/bin/cmos28lpp_rf1_hd_1024x32m4 \
+$PDK/library/memory/batch_script/FE-Common_sec190812_0141/MemoryCompiler_FE/batch_script/bin/cmos28lpp_rf1_hd_512x32m2 \
+"
+
+set search_path "$search_path \
+                $std_library_path \
+                $gpio_library_path \
+                $RAM_path \
+"
+
+set target_library "sc9_cmos28lpp_base_rvt_ff_nominal_min_1p100v_m40c_sadhm.db \
+                    sc9_cmos28lpp_base_rvt_tt_nominal_max_1p000v_25c.db \
+"
+
+set link_library "* $target_library \
+                        io_gppr_cmos28lpp_t18_ff_1p155v_1p950v_m40c.db \
+                        io_gppr_cmos28lpp_t18_tt_1p000v_1p800v_25c.db \
+			cmos28lpp_rf1_hd_1024x32m4_tt_1p000v_1p000v_25c.db \
+			cmos28lpp_rf1_hd_512x32m2_tt_1p000v_1p000v_25c.db \
+"
+
+
+set hdlin_enable_configurations true
+set hdlin_enable_rtldrc_info true
+set test_default_scan_style multiplexed_flip_flop
+

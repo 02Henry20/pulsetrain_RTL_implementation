@@ -1,0 +1,10 @@
+/data/SCRIPTS/COMMON_VERILOG/DEMUX.v
+/data/SCRIPTS/COMMON_VERILOG/MemModel.v
+/data/SCRIPTS/COMMON_VERILOG/MUX.v
+/data/SCRIPTS/COMMON_VERILOG/REGISTER.v
+/data/S28/library/ln28lpp_gpio_1p8v_V1.00a_pkg/FE-Common_sec190321_0300/MODEL/io_gppr_cmos28lpp_t18.v
+../TESTBENCH/TB_TOP.v
+../../RTL/TOP.v
+../../../VECTOR/RTL/VECTOR.v
+../../../MEMSET/RTL/MEMSET.v
+../../../CORE/RTL/CORE.v

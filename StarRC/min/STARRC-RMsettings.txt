@@ -1,0 +1,28 @@
+##############################################################
+# Reference methodology option settings selected by the user.
+#
+# Copyright (C) 2019 Synopsys, Inc. All rights reserved.
+##############################################################
+ 
+Option Name:  Setting
+=====================
+Physical Input Database:  NDM
+Technology:  ABOVE_28NM
+Distributed Processing:  FALSE
+Simultaneous Multicorner Extraction:  FALSE
+Incremental ECO Extraction:  FALSE
+Rapid3D Extraction:  FALSE
+Skip Macro Cell:  TRUE
+Skipped Macro Cell Additional Contents:  FALSE
+Extract Metal Fill:  FALSE
+Enable RC Scaling:  NO
+Enable Virtual Shielding:  NO
+Enable Incomplete Nets Handling:  NO
+Enhanced Shorts Reporting:  FALSE
+Visualization of Database:  FALSE
+Extract Clock Nets Inductance:  FALSE
+Coupled Netlist (Signal Integrity Analysis):  NO
+Hierarchical Instance Coupling Extraction:  NO
+Netlist Format:  SPEF
+Lynx Compatible:  FALSE
+

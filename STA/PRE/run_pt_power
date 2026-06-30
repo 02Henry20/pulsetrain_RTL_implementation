@@ -1,0 +1,2 @@
+pt_shell -f script/power_script.tcl | tee -i log/pt_power.log
+

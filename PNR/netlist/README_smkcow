@@ -1,0 +1,58 @@
+This is how to  modify original vclef file 
+
+
+AGENDA
+- The structure of the memory vclef file 
+
+==========================================================
+(Start of Signal pin)
+
+  PIN 
+	PORT
+		LAYER
+			RECT
+	.
+	.
+	.
+
+(End of Signal pin)
+==========================================================
+(Start of Power pin)
+
+  PIN 
+	PORT
+		LAYER
+			RECT
+	PORT
+		LAYER
+			RECT
+	PORT
+		LAYER
+			RECT
+	.
+	.
+	.
+(This is because there are so many RECTangles in the memory)
+	.
+	.
+	.
+	.
+	.
+(EOF)
+
+==========================================================
+
+1. copy original file and make a new file 
+
+2. open the new file and find out the location of the last signal pin
+
+3. Erase from the start row of Power pin to the end of the file
+
+4. save and quit 
+
+5. just execute ./make_tdf.sh 
+	EX) ./make_tdf.sh [memory.vclef] [x_size] [y_size]
+     
+REF) You can check x_size and y_size in the begining of vclef file
+     Find "SIZE" word with using "/" character 
+

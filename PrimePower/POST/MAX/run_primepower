@@ -1,0 +1,1 @@
+pwr_shell -f rm_pwr_scripts/pwr.tcl | tee -i pwr.log

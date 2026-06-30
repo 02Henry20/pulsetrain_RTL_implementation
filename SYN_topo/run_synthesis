@@ -1,0 +1,2 @@
+#dc_shell -topo -f script/script.tcl | tee -i ./logs/all.log
+dc_shell -topo -f script/dc.tcl | tee -i ./logs/all.log

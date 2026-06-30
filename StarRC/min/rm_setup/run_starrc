@@ -1,0 +1,15 @@
+#!/bin/csh
+########################################################################
+# StarRC Reference Methodology Run Script                              #
+# Gate Level Flow                                                      #
+# Script: run_starrc                                                   #
+# Version: L-2016.06 (July 25, 2016)                                #
+# Copyright (C) 2010-2016 Synopsys, Inc. All rights reserved.          #
+########################################################################
+
+# Before running the script, set the variable $STAR_PATH to the latest StarXtract executable location
+mkdir results reports
+#StarXtract -clean ./rm_starrc_scripts/star_cmd_gate_MAX
+StarXtract -clean ./rm_starrc_scripts/star_cmd_gate_MIN_from_samsung
+
+

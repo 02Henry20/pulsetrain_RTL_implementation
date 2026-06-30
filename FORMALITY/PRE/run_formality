@@ -1,0 +1,1 @@
+formality -f script/formality.tcl | tee -i log/formality.log

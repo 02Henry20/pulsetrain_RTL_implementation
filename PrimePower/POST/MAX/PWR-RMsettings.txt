@@ -1,0 +1,27 @@
+##############################################################
+# Reference methodology option settings selected by the user.
+#
+# Copyright (C) 2020 Synopsys, Inc. All rights reserved.
+##############################################################
+
+Option Name:  Setting
+=====================
+Flow:  ASCII-INPUT
+Timing Flow:  PT
+Back Annotation Mode:  SPEF
+CSS Waveform Propagation:  FALSE
+Multivoltage Scaling Mode:  FALSE
+UPF Mode:  FALSE
+Power Analysis Mode:  AVERAGED
+Switching Activity Type:  GATE_SAIF
+Link to TetraMax:  FALSE
+OCV Mode:  OFF
+CRPR Mode:  FALSE
+Derate Mode:  FALSE
+Auto Clock Mux:  FALSE
+Save Session:  TRUE
+Timing Models:  OFF
+Path-Based Analysis:  FALSE
+Reports:  STANDARD
+Lynx Compatible:  FALSE
+
