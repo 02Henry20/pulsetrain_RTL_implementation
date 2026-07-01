@@ -1,0 +1,5 @@
+/SIM/TESTBENCH/old
+/SIM/FUNCTION/runs
+/SIM/FUNCTION/.*
+/SIM/FUNCTION/.fsm.sch.verilog.xml
+/SIM/FUNCTION/fsdb_auto.tcl
