@@ -2,13 +2,13 @@
 
 module TB_TOP_ZERO_DELETE;
 
-    parameter NUM_VALUES   = 4;
-    parameter VALUE_WIDTH  = 8;
+    parameter NUM_VALUES   = 8;
+    parameter VALUE_WIDTH  = 16;
     parameter FIFO_DEPTH   = 10;
     parameter CLOCK_PERIOD = 10;
 
     reg CLK;
-    reg RSTn;
+    reg RST;
     reg PULSE_DONE;
 
     reg [VALUE_WIDTH-1:0] X_LFSR_VALUE;
@@ -21,13 +21,13 @@ module TB_TOP_ZERO_DELETE;
     wire [NUM_VALUES-1:0] D_PULSES_OUT;
     wire                  VALID_OUT;
 
-    TOP_PREV #(
+    TOP #(
         .NUM_VALUES (NUM_VALUES),
         .VALUE_WIDTH(VALUE_WIDTH),
         .FIFO_DEPTH (FIFO_DEPTH)
     ) dut (
         .CLK           (CLK),
-        .RSTn          (RSTn),
+        .RST          (RST),
 
         .X_LFSR_VALUE  (X_LFSR_VALUE),
         .X_INPUT_VALUES(X_INPUT_VALUES),
@@ -131,7 +131,7 @@ module TB_TOP_ZERO_DELETE;
         $dumpvars(0, TB_TOP_ZERO_DELETE);
 
         CLK            = 0;
-        RSTn           = 0;
+        RST           = 0;
         PULSE_DONE     = 0;
         X_LFSR_VALUE   = 0;
         D_LFSR_VALUE   = 0;
@@ -141,7 +141,7 @@ module TB_TOP_ZERO_DELETE;
         repeat (3) @(posedge CLK);
 
         @(negedge CLK);
-        RSTn = 1'b1;
+        RST = 1'b1;
 
         // X = 0101, D = 0011
         send_values(

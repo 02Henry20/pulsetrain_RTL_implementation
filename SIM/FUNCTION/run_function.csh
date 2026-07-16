@@ -13,7 +13,7 @@ if ($#argv < 1 || $#argv > 2) then
     exit 1
 endif
 
-set ARCH = "$argv[1]"
+set ARCH       = "$argv[1]"
 set ARCH_UPPER = `echo "${ARCH}" | tr '[:lower:]' '[:upper:]'`
 set TOP_MODULE = "TB_TOP_${ARCH_UPPER}"
 
@@ -21,13 +21,26 @@ if ($#argv == 2) then
     set TOP_MODULE = "$argv[2]"
 endif
 
-set FUNCTION_DIR = $cwd
-set RTL_DIR      = "${FUNCTION_DIR}/../../RTL"
-set TB_DIR       = "${FUNCTION_DIR}/../TESTBENCH"
+# Resolve paths from the script location instead of assuming the current directory.
+set SCRIPT_DIR   = `dirname "$0"`
+set FUNCTION_DIR = `cd "${SCRIPT_DIR}" && pwd`
+
+set RTL_DIR = "${FUNCTION_DIR}/../../RTL"
+set TB_DIR  = "${FUNCTION_DIR}/../TESTBENCH"
 
 set ARCH_FILELIST = "${FUNCTION_DIR}/filelists/${ARCH}.f"
 set TB_FILE       = "${TB_DIR}/${TOP_MODULE}.v"
 set RUN_DIR       = "${FUNCTION_DIR}/runs/${ARCH}/${TOP_MODULE}"
+
+# The testbench must instantiate the synthesizable TOP module as:
+#
+#   TOP ... dut (...);
+#
+# This instance name is used for DUT-only FSDB/SAIF activity.
+set DUT_INSTANCE = "dut"
+
+set ACTIVITY_BASENAME = "${ARCH}_${TOP_MODULE}"
+set FSDB_FILE         = "${ACTIVITY_BASENAME}.fsdb"
 
 # ---------------------------------------------------------
 # Check requested architecture and testbench
@@ -47,6 +60,7 @@ endif
 
 echo "Architecture : ${ARCH}"
 echo "Testbench    : ${TOP_MODULE}"
+echo "DUT instance : ${DUT_INSTANCE}"
 echo "Output       : ${RUN_DIR}"
 
 # ---------------------------------------------------------
@@ -66,6 +80,10 @@ mkdir -p "${RUN_DIR}"
 echo "${ARCH} ${TOP_MODULE} ${RUN_DIR}" >! \
     "${FUNCTION_DIR}/.selected_run"
 
+# Store activity metadata for conversion and synthesis scripts.
+echo "${ARCH} ${TOP_MODULE} ${DUT_INSTANCE} ${ACTIVITY_BASENAME}" >! \
+    "${RUN_DIR}/activity.info"
+
 # ---------------------------------------------------------
 # Convert architecture file list to absolute paths
 # ---------------------------------------------------------
@@ -81,12 +99,12 @@ awk -v base="${FUNCTION_DIR}" \
 echo "${TB_FILE}" >> "${RUN_DIR}/filenames.f"
 
 # ---------------------------------------------------------
-# Generate FSDB commands
+# Generate DUT-only FSDB commands
 # ---------------------------------------------------------
 
 cat >! "${RUN_DIR}/fsdb_auto.tcl" << EOF
-call {\$fsdbDumpfile ("${ARCH}_${TOP_MODULE}.fsdb")};
-call {\$fsdbDumpvars (0, ${TOP_MODULE}, "+mda")};
+call {\$fsdbDumpfile ("${FSDB_FILE}")};
+call {\$fsdbDumpvars (0, ${TOP_MODULE}.${DUT_INSTANCE}, "+mda")};
 run
 exit
 EOF
@@ -133,3 +151,4 @@ endif
 
 echo "Compilation finished."
 echo "Results stored in: ${RUN_DIR}"
+echo "Expected FSDB: ${RUN_DIR}/${FSDB_FILE}"

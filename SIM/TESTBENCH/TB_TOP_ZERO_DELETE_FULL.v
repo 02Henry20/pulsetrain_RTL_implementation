@@ -11,7 +11,7 @@ module TB_TOP_ZERO_DELETE_FULL;
     parameter MAX_EXPECTED = 4096;
 
     reg CLK;
-    reg RSTn;
+    reg RST;
     reg PULSE_DONE;
 
     reg [VALUE_WIDTH-1:0] X_LFSR_VALUE;
@@ -50,13 +50,13 @@ module TB_TOP_ZERO_DELETE_FULL;
 
     localparam [VALUE_WIDTH-1:0] MAX_VALUE = {VALUE_WIDTH{1'b1}};
 
-    TOP_PREV #(
+    TOP #(
         .NUM_VALUES (NUM_VALUES),
         .VALUE_WIDTH(VALUE_WIDTH),
         .FIFO_DEPTH (FIFO_DEPTH)
     ) dut (
         .CLK           (CLK),
-        .RSTn          (RSTn),
+        .RST          (RST),
 
         .X_LFSR_VALUE  (X_LFSR_VALUE),
         .X_INPUT_VALUES(X_INPUT_VALUES),
@@ -467,7 +467,7 @@ module TB_TOP_ZERO_DELETE_FULL;
         $dumpvars(0, TB_TOP_ZERO_DELETE_FULL);
 
         CLK            = 0;
-        RSTn           = 1;
+        RST           = 1;
         PULSE_DONE     = 0;
 
         X_LFSR_VALUE   = 0;
@@ -495,7 +495,7 @@ module TB_TOP_ZERO_DELETE_FULL;
         $display("========================================");
 
         #1;
-        RSTn = 1'b0;
+        RST = 1'b0;
 
         #1;
         checks = checks + 1;
@@ -512,7 +512,7 @@ module TB_TOP_ZERO_DELETE_FULL;
         repeat (3) @(posedge CLK);
 
         @(negedge CLK);
-        RSTn = 1'b1;
+        RST = 1'b1;
 
         expect_empty();
         test_done_while_empty();
@@ -758,7 +758,7 @@ module TB_TOP_ZERO_DELETE_FULL;
          * Assert reset between clock edges.
          */
         #2;
-        RSTn = 1'b0;
+        RST = 1'b0;
 
         #1;
         checks = checks + 1;
@@ -784,7 +784,7 @@ module TB_TOP_ZERO_DELETE_FULL;
         repeat (2) @(posedge CLK);
 
         @(negedge CLK);
-        RSTn = 1'b1;
+        RST = 1'b1;
 
         expect_empty();
 
