@@ -1,223 +1,117 @@
-module GROUP_MASK #(
-    parameter integer NUM_VALUES    = 8,
-    parameter integer MAX_PULSES    = 32
+// Temporally front-loads pulses within each D lane while preserving X order.
+module SORT #(
+    parameter integer CROSSBAR_DIMENSION = 8, // Shared X and D lane count.
+    parameter integer BIT_LENGTH = 32 // Pulse cycles in one complete train set.
 ) (
-    input  wire                  CLK,
-    input  wire                  RST,
+    input  wire                          CLK, // System clock.
+    input  wire                          RST, // Active-low asynchronous reset.
 
-    input  wire [NUM_VALUES-1:0] PULSES_IN,
-    input  wire                  DONE,
+    input  wire                          INPUT_VALID, // Current unsorted X/D pair is valid.
+    input  wire                          INPUT_LAST, // Current pair is the final cycle of this set.
+    output wire                          INPUT_READY, // Sorter can capture another source cycle.
+    input  wire [CROSSBAR_DIMENSION-1:0] X_PULSES_IN, // X cycle retained in its original order.
+    input  wire [CROSSBAR_DIMENSION-1:0] D_PULSES_IN, // D cycle accumulated independently per lane.
 
-    output reg  [NUM_VALUES-1:0] PULSES_OUT,
-    output reg                   VALID_OUT,
-    output reg                   DONE_OUT
+    output wire [CROSSBAR_DIMENSION-1:0] X_PULSES_OUT, // Original X cycle at the sorted time index.
+    output wire [CROSSBAR_DIMENSION-1:0] D_PULSES_OUT, // Temporally sorted D layer.
+    output wire                          OUTPUT_VALID, // Sorted X/D pair is available.
+    output wire                          OUTPUT_LAST, // Current output is the final frame cycle.
+    input  wire                          OUTPUT_READY // Downstream can accept the pair.
 );
 
-    localparam STATE_CAPTURE = 1'b0;
-    localparam STATE_DRAIN   = 1'b1;
-    localparam COUNTER_WIDTH = $clog2(MAX_PULSES + 1);
-    reg state;
+    localparam integer FRAME_INDEX_WIDTH =
+        (BIT_LENGTH <= 1) ? 1 : $clog2(BIT_LENGTH);
+    localparam integer D_COUNT_WIDTH =
+        (BIT_LENGTH <= 1) ? 1 : $clog2(BIT_LENGTH + 1);
+    localparam [FRAME_INDEX_WIDTH-1:0] LAST_FRAME_INDEX =
+        BIT_LENGTH - 1;
 
-    /*
-     * Absolute number of received pulses for each stream.
-     * These counters are never decremented.
-     */
-    reg [COUNTER_WIDTH-1:0] pulse_count [0:NUM_VALUES-1];
+    // X is buffered but never sorted; output index t always receives input X[t].
+    // Each indexed X slot is written before that layer can become eligible.
+    reg [CROSSBAR_DIMENSION-1:0] x_frame [0:BIT_LENGTH-1];
+    reg [D_COUNT_WIDTH-1:0] d_pulse_count [0:CROSSBAR_DIMENSION-1];
 
-    /*
-     * Number of sorted output columns already emitted.
-     */
-    reg [COUNTER_WIDTH-1:0] output_level;
+    reg [FRAME_INDEX_WIDTH-1:0] input_index;
+    reg [FRAME_INDEX_WIDTH-1:0] output_index;
+    reg                         frame_captured;
 
-    /*
-     * Largest pulse count among all streams.
-     * This determines the total sorted output length.
-     */
-    reg [COUNTER_WIDTH-1:0] max_count;
+    wire input_fire  = INPUT_VALID && INPUT_READY;
+    wire output_fire = OUTPUT_VALID && OUTPUT_READY;
 
-    wire [NUM_VALUES-1:0] next_level_available;
-    wire [NUM_VALUES-1:0] sorted_output_mask;
-    wire [NUM_VALUES-1:0] counter_reaches_new_max;
-
-    wire all_next_level_available;
-    wire increase_max_count;
-
-    genvar g;
+    wire [CROSSBAR_DIMENSION-1:0] current_d_layer;
+    genvar lane;
     generate
-        for (g = 0; g < NUM_VALUES; g = g + 1) begin : STATUS_LOGIC
-
-            /*
-             * Check the counter after accepting the current input.
-             *
-             * If it is greater than output_level, this stream can
-             * participate in the next sorted output column.
-             */
-            assign next_level_available[g] =
-                ({1'b0, pulse_count[g]} + PULSES_IN[g])
-                > {1'b0, output_level};
-
-            /*
-             * During draining, bit g is one while its total pulse
-             * count is greater than the current output level.
-             */
-            assign sorted_output_mask[g] =
-                pulse_count[g] > output_level;
-
-            /*
-             * The maximum can increase by at most one each clock.
-             *
-             * It increases when a counter that is currently equal
-             * to max_count receives another pulse.
-             */
-            assign counter_reaches_new_max[g] =
-                PULSES_IN[g] &&
-                (pulse_count[g] == max_count);
-
+        for (lane = 0; lane < CROSSBAR_DIMENSION;
+             lane = lane + 1) begin : GEN_D_LAYER
+            // A lane with count N is high in temporal layers 0 through N-1.
+            assign current_d_layer[lane] =
+                d_pulse_count[lane] > output_index;
         end
     endgenerate
 
-    /*
-     * The next output column can be emitted as all ones when every
-     * stream has accumulated a pulse above the current output level.
-     */
-    assign all_next_level_available =
-        &next_level_available;
+    // Before frame end, only an all-one layer is final and safe to release.
+    wire saturated_layer_ready = &current_d_layer;
 
-    assign increase_max_count =
-        |counter_reaches_new_max;
+    assign INPUT_READY = !frame_captured;
+    assign OUTPUT_VALID = frame_captured || saturated_layer_ready;
+    assign OUTPUT_LAST = OUTPUT_VALID &&
+        (output_index == LAST_FRAME_INDEX);
 
-    integer i;
+    assign X_PULSES_OUT = OUTPUT_VALID ?
+        x_frame[output_index] : {CROSSBAR_DIMENSION{1'b0}};
+    assign D_PULSES_OUT = OUTPUT_VALID ?
+        current_d_layer : {CROSSBAR_DIMENSION{1'b0}};
 
-    always @(posedge CLK or posedge RST) begin
-        if (RST) begin
-            state        <= STATE_CAPTURE;
-            output_level <= {COUNTER_WIDTH{1'b0}};
-            max_count    <= {COUNTER_WIDTH{1'b0}};
+    integer capture_lane;
+    integer reset_lane;
 
-            PULSES_OUT <= {NUM_VALUES{1'b0}};
-            VALID_OUT  <= 1'b0;
-            DONE_OUT   <= 1'b0;
+    always @(posedge CLK or negedge RST) begin
+        if (!RST) begin
+            input_index   <= {FRAME_INDEX_WIDTH{1'b0}};
+            output_index  <= {FRAME_INDEX_WIDTH{1'b0}};
+            frame_captured <= 1'b0;
 
-            for (i = 0; i < NUM_VALUES; i = i + 1) begin
-                pulse_count[i] <= {COUNTER_WIDTH{1'b0}};
+            for (reset_lane = 0;
+                 reset_lane < CROSSBAR_DIMENSION;
+                 reset_lane = reset_lane + 1) begin
+                d_pulse_count[reset_lane] <= {D_COUNT_WIDTH{1'b0}};
+            end
+        end else begin
+            if (input_fire) begin
+                x_frame[input_index] <= X_PULSES_IN;
+
+                for (capture_lane = 0;
+                     capture_lane < CROSSBAR_DIMENSION;
+                     capture_lane = capture_lane + 1) begin
+                    d_pulse_count[capture_lane] <=
+                        d_pulse_count[capture_lane] +
+                        D_PULSES_IN[capture_lane];
+                end
+
+                if (INPUT_LAST) begin
+                    input_index    <= {FRAME_INDEX_WIDTH{1'b0}};
+                    frame_captured <= 1'b1;
+                end else begin
+                    input_index <= input_index + 1'b1;
+                end
             end
 
-        end else begin
-            /*
-             * Default output values.
-             */
-            PULSES_OUT <= {NUM_VALUES{1'b0}};
-            VALID_OUT  <= 1'b0;
-            DONE_OUT   <= 1'b0;
+            if (output_fire) begin
+                if (OUTPUT_LAST) begin
+                    // Final sorted layer accepted: release counters for the next set.
+                    output_index   <= {FRAME_INDEX_WIDTH{1'b0}};
+                    frame_captured <= 1'b0;
 
-            case (state)
-
-                // =====================================================
-                // Receive and count input pulses
-                // =====================================================
-                STATE_CAPTURE: begin
-
-                    /*
-                     * Add the current input pulse to every corresponding
-                     * counter.
-                     */
-                    for (i = 0; i < NUM_VALUES; i = i + 1) begin
-                        pulse_count[i] <=
-                            pulse_count[i] + PULSES_IN[i];
+                    for (reset_lane = 0;
+                         reset_lane < CROSSBAR_DIMENSION;
+                         reset_lane = reset_lane + 1) begin
+                        d_pulse_count[reset_lane] <=
+                            {D_COUNT_WIDTH{1'b0}};
                     end
-
-                    /*
-                     * Update the maximum pulse count.
-                     *
-                     * Because each counter increases by at most one,
-                     * the maximum can also increase by at most one.
-                     */
-                    if (increase_max_count) begin
-                        max_count <= max_count + 1'b1;
-                    end
-
-                    /*
-                     * Emit an all-one column as soon as every stream
-                     * contains a pulse for the next output level.
-                     *
-                     * No counters need to be decremented.
-                     */
-                    if (all_next_level_available) begin
-                        PULSES_OUT <= {NUM_VALUES{1'b1}};
-                        VALID_OUT  <= 1'b1;
-
-                        output_level <= output_level + 1'b1;
-                    end
-
-                    /*
-                     * DONE is treated as being asserted together with
-                     * the final valid PULSES_IN value.
-                     *
-                     * If DONE is asserted one cycle later instead,
-                     * simply drive PULSES_IN to zero during that cycle.
-                     */
-                    if (DONE) begin
-                        state <= STATE_DRAIN;
-                    end
+                end else begin
+                    output_index <= output_index + 1'b1;
                 end
-
-                // =====================================================
-                // Emit the remaining sorted pulse columns
-                // =====================================================
-                STATE_DRAIN: begin
-
-                    if (output_level < max_count) begin
-
-                        /*
-                         * Generate the next sorted column by comparing
-                         * every fixed counter against output_level.
-                         */
-                        PULSES_OUT <= sorted_output_mask;
-                        VALID_OUT  <= 1'b1;
-
-                        /*
-                         * If this is the final level, the current output
-                         * is the final valid sorted column.
-                         */
-                        if (output_level == max_count - 1'b1) begin
-                            DONE_OUT <= 1'b1;
-                            state    <= STATE_CAPTURE;
-
-                            output_level <= {COUNTER_WIDTH{1'b0}};
-                            max_count    <= {COUNTER_WIDTH{1'b0}};
-
-                            for (i = 0; i < NUM_VALUES; i = i + 1) begin
-                                pulse_count[i] <=
-                                    {COUNTER_WIDTH{1'b0}};
-                            end
-
-                        end else begin
-                            output_level <= output_level + 1'b1;
-                        end
-
-                    end else begin
-                        /*
-                         * All output columns may already have been
-                         * emitted during capture.
-                         */
-                        DONE_OUT <= 1'b1;
-                        state    <= STATE_CAPTURE;
-
-                        output_level <= {COUNTER_WIDTH{1'b0}};
-                        max_count    <= {COUNTER_WIDTH{1'b0}};
-
-                        for (i = 0; i < NUM_VALUES; i = i + 1) begin
-                            pulse_count[i] <=
-                                {COUNTER_WIDTH{1'b0}};
-                        end
-                    end
-                end
-
-                default: begin
-                    state <= STATE_CAPTURE;
-                end
-
-            endcase
+            end
         end
     end
 

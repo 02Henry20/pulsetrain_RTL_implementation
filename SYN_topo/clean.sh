@@ -18,3 +18,5 @@ rm -rf dcg_*
 rm -rf check_scenarios_*
 rm -rf results/*
 rm -rf reports/*
+rm -rf runs/
+rm -rf MY_DESIGN*

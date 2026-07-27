@@ -75,9 +75,13 @@ set_clock_transition 0.1 [get_clocks MAIN_CLOCK]
 # Delay is estimated like below
 
 #half is recommended
-set_input_delay -max 0.2 -clock MAIN_CLOCK [all_inputs]
-set_input_delay -min 0.2 -clock MAIN_CLOCK [all_inputs]
-remove_input_delay [get_ports "CLK"] 
+set DATA_INPUTS \
+    [remove_from_collection \
+        [all_inputs] \
+        [get_ports {CLK RST}]]
+set_input_delay -max 0.2 -clock MAIN_CLOCK $DATA_INPUTS
+set_input_delay -min 0.2 -clock MAIN_CLOCK $DATA_INPUTS
+set_false_path -from [get_ports RST]
 
 set_output_delay -max 0.2 -clock MAIN_CLOCK [all_outputs]
 set_output_delay -min -0.2 -clock MAIN_CLOCK [all_outputs]
@@ -89,7 +93,7 @@ set_output_delay -min -0.2 -clock MAIN_CLOCK [all_outputs]
 
 # Area Constraint
 #
-set_max_area 0
+# set_max_area 0
 
 
 ###################################
@@ -98,9 +102,10 @@ set_max_area 0
 #                                 #
 ###################################
 #set_driving_cell -lib_cell pvhbcudtart -library ss65lp3p3v_lek_132_360_p125 -no_design_rule [all_inputs]
-set_driving_cell -lib_cell PBIDIR_18_18_NT_DR -library io_gppr_cmos28lpp_t18_tt_1p000v_1p800v_25c -no_design_rule [all_inputs]
+# set_driving_cell -lib_cell PBIDIR_18_18_NT_DR -library io_gppr_cmos28lpp_t18_tt_1p000v_1p800v_25c -no_design_rule [all_inputs]
 
-set_load [load_of io_gppr_cmos28lpp_t18_tt_1p000v_1p800v_25c/PBIDIR_18_18_NT_DR/A] [all_outputs]
+# set_load [load_of io_gppr_cmos28lpp_t18_tt_1p000v_1p800v_25c/PBIDIR_18_18_NT_DR/A] [all_outputs]
+set_load 0.005 [all_outputs]
 
 #set_wire_load_mode "top"
 #set auto_wire_load_selection false
@@ -110,7 +115,7 @@ set_load [load_of io_gppr_cmos28lpp_t18_tt_1p000v_1p800v_25c/PBIDIR_18_18_NT_DR/
 # smkcow : operating condition command is done at pad_TOP.mcmm.scenarios.tcl
 #set_operating_condition -max ss_1p08v_125c -max_library scmetro_cmos10lp_rvt_ss_1p08v_125c_sadhm -min ff_1p32v_m40c -min_library scmetro_cmos10lp_rvt_ff_1p32v_m40c_sadhm
 
-set_operating_conditions tt_1p000v_25c -library sc9_cmos28lpp_base_rvt_tt_nominal_max_1p000v_25c -analysis_type on_chip_variation
+# set_operating_conditions tt_1p000v_25c -library sc9_cmos28lpp_base_rvt_tt_nominal_max_1p000v_25c -analysis_type on_chip_variation
 
 
 #set_wire_load_model -name zero-wire-load-model

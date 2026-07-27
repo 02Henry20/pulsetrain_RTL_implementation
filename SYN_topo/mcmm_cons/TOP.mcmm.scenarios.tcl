@@ -79,7 +79,7 @@ check_tlu_plus_files
 # switching activity.
 
 # read_saif -auto_map_names -input ${DESIGN_NAME}.${scenario}.saif -instance < DESIGN_INSTANCE > -verbose
-   read_saif -auto_map_names -input ../SIM/FUNCTION/${DESIGN_NAME}.saif -instance TB_${DESIGN_NAME}/U_${DESIGN_NAME} -verbose
+   # read_saif -auto_map_names -input ../SIM/FUNCTION/${DESIGN_NAME}.saif -instance TB_${DESIGN_NAME}/U_${DESIGN_NAME} -verbose
 
 # Set options for worst case setup scenario
 set_scenario_options -setup true -hold false -leakage_power true  -dynamic_power true
@@ -126,7 +126,7 @@ check_tlu_plus_files
 # switching activity.
 
 # read_saif -auto_map_names -input ${DESIGN_NAME}.${scenario}.saif -instance < DESIGN_INSTANCE > -verbose
-   read_saif -auto_map_names -input ../SIM/FUNCTION/${DESIGN_NAME}.saif -instance TB_${DESIGN_NAME}/U_${DESIGN_NAME} -verbose
+   # read_saif -auto_map_names -input ../SIM/FUNCTION/${DESIGN_NAME}.saif -instance TB_${DESIGN_NAME}/U_${DESIGN_NAME} -verbose
 
 # Set options for worst case setup scenario
 set_scenario_options -setup false -hold true -leakage_power true  -dynamic_power true

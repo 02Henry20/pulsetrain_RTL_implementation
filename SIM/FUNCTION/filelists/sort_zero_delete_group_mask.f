@@ -1,0 +1,9 @@
+../../RTL/common/LFSR.v
+../../RTL/common/PULSE_GENERATOR.v
+../../RTL/common/PULSE_GENERATOR_LFSR.v
+../../RTL/common/SORT.v
+../../RTL/common/ZERO_DELETE.v
+../../RTL/common/GROUP_MASK.v
+../../RTL/common/OUTPUT_BUFFER.v
+../../RTL/common/ARCH_TOP.v
+../../RTL/architectures/sort_zero_delete_group_mask/TOP.v

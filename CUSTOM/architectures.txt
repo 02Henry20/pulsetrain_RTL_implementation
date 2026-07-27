@@ -1,0 +1,17 @@
+# One architecture per line. Comment out a line to disable that architecture.
+baseline
+group_mask
+lfsr
+lfsr_group_mask
+lfsr_sort
+lfsr_sort_group_mask
+lfsr_sort_zero_delete
+lfsr_sort_zero_delete_group_mask
+lfsr_zero_delete
+lfsr_zero_delete_group_mask
+sort
+sort_group_mask
+sort_zero_delete
+sort_zero_delete_group_mask
+zero_delete
+zero_delete_group_mask

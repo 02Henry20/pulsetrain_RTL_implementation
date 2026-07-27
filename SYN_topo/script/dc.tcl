@@ -5,7 +5,7 @@
 # Version: M-2016.12-SP4 (July 17, 2017)
 # Copyright (C) 2007-2016 Synopsys, Inc. All rights reserved.
 #################################################################################
-
+set ENABLE_DFT false
 # Design Compiler must be run in topographical mode for MCMM flow support
 # MCMM also requires a license for Design Compiler Graphical
 if {![shell_is_in_topographical_mode]} {
@@ -200,24 +200,14 @@ redirect -tee -file ${REPORTS_DIR}/${DESIGN_NAME}.check_timing {check_timing}
 
 # set_active_scenarios <list of scenarios for synthesis optimization>
 
-##################################################################################
-# Lab : Start 
-##################################################################################
-current_scenario mode_norm.OC_rvt_ff_min_1p100v_m40c.RC_MIN
-set scenario [current_scenario]
-read_sdc [dcrm_mcmm_filename ${DCRM_SDC_INPUT_FILE} ${scenario}]
-#source [dcrm_mcmm_filename ${DCRM_CONSTRAINTS_INPUT_FILE} ${scenario}]
-set_operating_conditions ff_1p100v_m40c -library sc9_cmos28lpp_base_rvt_ff_nominal_min_1p100v_m40c_sadhm -analysis_type on_chip_variation
-
-current_scenario mode_norm.OC_rvt_tt_max_1p000v_25c.RC_MAX
-set scenario [current_scenario]
-read_sdc [dcrm_mcmm_filename ${DCRM_SDC_INPUT_FILE} ${scenario}]
-#source [dcrm_mcmm_filename ${DCRM_CONSTRAINTS_INPUT_FILE} ${scenario}]
-set_operating_conditions tt_1p000v_25c -library sc9_cmos28lpp_base_rvt_tt_nominal_max_1p000v_25c -analysis_type on_chip_variation
 
 ##################################################################################
-# Lab : End 
+# MCMM constraints and operating conditions are applied exactly once by:
+#   ${DCRM_MCMM_SCENARIOS_SETUP_FILE}
+#
+# Do not read the same SDC files again here.
 ##################################################################################
+
 
 report_scenarios > ${REPORTS_DIR}/${DCRM_MCMM_SCENARIOS_REPORT}
 check_scenarios -output ${REPORTS_DIR}
@@ -281,7 +271,7 @@ current_scenario ${current_scenario_saved}
     # Default clock_gating_style suits most designs.  Change only if necessary.
     # set_clock_gating_style -positive_edge_logic {integrated} -negative_edge_logic {integrated} -control_point before ...   
     #set_clock_gating_style -positive_edge_logic {integrated} -negative_edge_logic {integrated} 
-    set_clock_gating_style -positive_edge_logic {integrated}
+    # set_clock_gating_style -positive_edge_logic {integrated}
 
     # Clock gate insertion is now performed during compile_ultra -gate_clock
     # so insert_clock_gating is no longer recommended at this step.
@@ -738,109 +728,115 @@ if { $OPTIMIZATION_FLOW == "hplp" } {
     # set_dft_signal -view existing_dft -type ScanClock -port [list CLK] -timing {45 55}
     # set_dft_signal -view existing_dft -type Reset -port RESET -active 0
 
-    puts "RM-Info: Sourcing script file [which ${DCRM_DFT_SIGNAL_SETUP_INPUT_FILE}]\n"
-    source -echo -verbose ${DCRM_DFT_SIGNAL_SETUP_INPUT_FILE}
+    if {$ENABLE_DFT} {
 
-    #############################################################################
-    # DFT for Clock Gating
-    #
-    # This section includes variables and commands used only when clock gating
-    # has been performed in the design.
-    #############################################################################
+            puts "RM-Info: Sourcing script file [which ${DCRM_DFT_SIGNAL_SETUP_INPUT_FILE}]\n"
+            source -echo -verbose ${DCRM_DFT_SIGNAL_SETUP_INPUT_FILE}
 
-    # Use the following command to initialize clock gating cells for test that are
-    # made transparent with a signal held constant for testing, e.g. of type 'Constant'.
-    # The value set depends on the hierarchy depth of the clock-gating cells.
-    # This setting is not needed where clock-gating cells are controlled with scan enable.
+            #############################################################################
+            # DFT for Clock Gating
+            #
+            # This section includes variables and commands used only when clock gating
+            # has been performed in the design.
+            #############################################################################
 
-    # set_dft_drc_configuration -clock_gating_init_cycles 1
+            # Use the following command to initialize clock gating cells for test that are
+            # made transparent with a signal held constant for testing, e.g. of type 'Constant'.
+            # The value set depends on the hierarchy depth of the clock-gating cells.
+            # This setting is not needed where clock-gating cells are controlled with scan enable.
 
-    # To specify a dedicated ScanEnable/TestMode signal to be used for clock gating,
-    # use the "-usage clock_gating" option of the "set_dft_signal" command
+            # set_dft_drc_configuration -clock_gating_init_cycles 1
 
-    # set_dft_signal -view spec -type <ScanEnable|TestMode> -port <dedicated port> -usage clock_gating
+            # To specify a dedicated ScanEnable/TestMode signal to be used for clock gating,
+            # use the "-usage clock_gating" option of the "set_dft_signal" command
 
-    # You can specify the clock-gating connectivity of the ScanEnable/TestMode signals
-    # after they are predefined with set_dft_signal -usage clock_gating
+            # set_dft_signal -view spec -type <ScanEnable|TestMode> -port <dedicated port> -usage clock_gating
 
-    # set_dft_connect <LABEL> -type clock_gating_control -source <DFT signal> [-target ...]
+            # You can specify the clock-gating connectivity of the ScanEnable/TestMode signals
+            # after they are predefined with set_dft_signal -usage clock_gating
 
-    #############################################################################
-    # DFT Configuration
-    #############################################################################
+            # set_dft_connect <LABEL> -type clock_gating_control -source <DFT signal> [-target ...]
 
-    # Preserve the design name when writing to the database during DFT insertion. 
-    set_dft_insertion_configuration -preserve_design_name true
+            #############################################################################
+            # DFT Configuration
+            #############################################################################
 
-    # Do not perform synthesis optimization during DFT insertion. 
-    set_dft_insertion_configuration -synthesis_optimization none
+            # Preserve the design name when writing to the database during DFT insertion. 
+            set_dft_insertion_configuration -preserve_design_name true
 
-    # Multibit cell handling
-    # Specify -preserve_multibit_segment to false to treat the cells inside a
-    # multibit component as discrete sequential cells. This improves balancing
-    # of scan chains.
-    # Starting I-2013.12 release, the default setting is false
-    # set_scan_configuration -preserve_multibit_segment false
+            # Do not perform synthesis optimization during DFT insertion. 
+            set_dft_insertion_configuration -synthesis_optimization none
 
-    ## DFT Clock Mixing Specification
-    # For a hierarchical flow, don't mix clocks at the block level:
-    # set_scan_configuration -clock_mixing no_mix
+            # Multibit cell handling
+            # Specify -preserve_multibit_segment to false to treat the cells inside a
+            # multibit component as discrete sequential cells. This improves balancing
+            # of scan chains.
+            # Starting I-2013.12 release, the default setting is false
+            # set_scan_configuration -preserve_multibit_segment false
 
-    # For a top-down methodology clock mixing is recommended, if possible:
-    set_scan_configuration -clock_mixing mix_clocks
+            ## DFT Clock Mixing Specification
+            # For a hierarchical flow, don't mix clocks at the block level:
+            # set_scan_configuration -clock_mixing no_mix
 
-    #############################################################################
-    # DFT AutoFix Configuration
-    #############################################################################
+            # For a top-down methodology clock mixing is recommended, if possible:
+            set_scan_configuration -clock_mixing mix_clocks
 
-    # Please refer to the DFT Compiler, DFTMAX, and DFTMAX Ultra User Guide, Chapter 12,
-    # "Advanced DFT Architecture Methodologies", "Using AutoFix" section.
+            #############################################################################
+            # DFT AutoFix Configuration
+            #############################################################################
 
-    # Please refer to the dc.dft_autofix_config.tcl file included with the
-    # Design Compiler Reference Methodology scripts for an example of a
-    # design-specific AutoFix configuration.
+            # Please refer to the DFT Compiler, DFTMAX, and DFTMAX Ultra User Guide, Chapter 12,
+            # "Advanced DFT Architecture Methodologies", "Using AutoFix" section.
 
-    # Create a design-specific Autofix configuration file and uncomment the
-    # following line to source this file.
+            # Please refer to the dc.dft_autofix_config.tcl file included with the
+            # Design Compiler Reference Methodology scripts for an example of a
+            # design-specific AutoFix configuration.
 
-    # source -echo -verbose ${DCRM_DFT_AUTOFIX_CONFIG_INPUT_FILE}
+            # Create a design-specific Autofix configuration file and uncomment the
+            # following line to source this file.
 
-    #############################################################################
-    # DFTMAX Compression Configuration 
-    #############################################################################
+            # source -echo -verbose ${DCRM_DFT_AUTOFIX_CONFIG_INPUT_FILE}
 
-    # Starting with Reference Methodology Scripts version G-2012.06
-    # DFTMAX Compression is enabled in the default flow configuration.
+            #############################################################################
+            # DFTMAX Compression Configuration 
+            #############################################################################
 
-    # Comment out the following command or change the option to "-scan_compression disable"
-    # to disable DFTMAX Compression during DFT insertion.
+            # Starting with Reference Methodology Scripts version G-2012.06
+            # DFTMAX Compression is enabled in the default flow configuration.
 
-    set_dft_configuration -scan_compression enable
+            # Comment out the following command or change the option to "-scan_compression disable"
+            # to disable DFTMAX Compression during DFT insertion.
 
-    # DFTMAX Compression Options:
-    # 
-    #  -min_power true
-    #     This specifies that compressor inputs are to be gated for functional power
-    #     saving. 
-    #     It also reduces glitching during functional and capture operations
-    #     Default for -min_power option is false. Recommend that you set this to
-    #     true. 
-    #
-    #  -xtolerance: value is set to tool default. 
-    #     Specify "high" to generate DFTMAX compression architecture that has 100% X-tolerance.
-    #
-    #  -minimum_compression: tool default is a target compression ratio of 10,
-    #
-    #  -location <compressor_decompressor_location>
-    #      Specifies the instance name in which the compressor and decompressor 
-    #      will be instantiated.
-    #      The default location is the top level of the current design.
-    # 
-    # For details on these and other DFTMAX compression options, please refer to the
-    # DFT Compiler, DFTMAX, and DFTMAX Ultra User Guide, Chapter 18, "Using DFTMAX Compression"
-    # and Chapter 20, "Managing X Values in Scan Compression".
+            set_dft_configuration -scan_compression enable
+
+            # DFTMAX Compression Options:
+            # 
+            #  -min_power true
+            #     This specifies that compressor inputs are to be gated for functional power
+            #     saving. 
+            #     It also reduces glitching during functional and capture operations
+            #     Default for -min_power option is false. Recommend that you set this to
+            #     true. 
+            #
+            #  -xtolerance: value is set to tool default. 
+            #     Specify "high" to generate DFTMAX compression architecture that has 100% X-tolerance.
+            #
+            #  -minimum_compression: tool default is a target compression ratio of 10,
+            #
+            #  -location <compressor_decompressor_location>
+            #      Specifies the instance name in which the compressor and decompressor 
+            #      will be instantiated.
+            #      The default location is the top level of the current design.
+            # 
+            # For details on these and other DFTMAX compression options, please refer to the
+            # DFT Compiler, DFTMAX, and DFTMAX Ultra User Guide, Chapter 18, "Using DFTMAX Compression"
+            # and Chapter 20, "Managing X Values in Scan Compression".
      
-    set_scan_compression_configuration -xtolerance high -min_power true;
+            set_scan_compression_configuration -xtolerance high -min_power true;
+
+    } else {
+        puts "RM-Info: DFT flow disabled (ENABLE_DFT=false)."
+    }
 
     # Use the following to define the test-mode signal to be used for DFTMAX  
     # compression. Ensure that that test mode signals to be used for clockgating have 
@@ -1092,6 +1088,7 @@ set_fix_hold [all_clocks]
 compile_ultra -incremental -spg -no_autoungroup > ${REPORTS_DIR}/${DESIGN_NAME}_compile_ultra_incremental.rpt
 #compile_ultra -incremental -spg -no_autoungroup
 
+
 ################################################################################
 # Remove the path groups generated by create_path_groups command. 
 # This does not remove user created path groups
@@ -1109,6 +1106,65 @@ if { $OPTIMIZATION_FLOW == "hplp" } {
 #################################################################################
 
 optimize_netlist -area
+
+#################################################################################
+# Optional SAIF Annotation
+#################################################################################
+
+if {
+    [info exists ::env(SAIF_FILE)] &&
+    [info exists ::env(SAIF_INSTANCE)]
+} {
+    set SAIF_FILE     $::env(SAIF_FILE)
+    set SAIF_INSTANCE $::env(SAIF_INSTANCE)
+
+    if {![file exists $SAIF_FILE]} {
+        puts "RM-Error: Selected SAIF file does not exist:"
+        puts "RM-Error:   ${SAIF_FILE}"
+        exit 1
+    }
+
+    puts "============================================================"
+    puts "RM-Info: Reading activity information"
+    puts "RM-Info: SAIF file    : ${SAIF_FILE}"
+    puts "RM-Info: SAIF instance: ${SAIF_INSTANCE}"
+    puts "============================================================"
+
+    set SAVED_SCENARIO [current_scenario]
+
+    foreach SCENARIO [all_active_scenarios] {
+        current_scenario $SCENARIO
+
+        puts "RM-Info: Annotating SAIF for scenario ${SCENARIO}"
+
+        if {
+            [catch {
+                read_saif \
+                    -auto_map_names \
+                    -input $SAIF_FILE \
+                    -instance $SAIF_INSTANCE \
+                    -verbose
+            } SAIF_ERROR]
+        } {
+            puts "RM-Error: SAIF annotation failed:"
+            puts "RM-Error: ${SAIF_ERROR}"
+            exit 1
+        }
+
+        set SAIF_REPORT \
+            "${REPORTS_DIR}/${DESIGN_NAME}.${SCENARIO}.saif.rpt"
+
+        redirect -tee -file $SAIF_REPORT {
+            report_saif
+        }
+    }
+
+    current_scenario $SAVED_SCENARIO
+
+} else {
+    puts "RM-Info: No SAIF selected. Using vectorless/default activity."
+}
+
 }
 #################################################################################
 # Write Out Final Design and Reports
@@ -1135,29 +1191,35 @@ optimize_netlist -area
     # this command must be performed prior to writing out the design database 
     # containing binary SCANDEF.
 
-    write_scan_def -output ${RESULTS_DIR}/${DCRM_DFT_FINAL_SCANDEF_OUTPUT_FILE}
-    check_scan_def > ${REPORTS_DIR}/${DCRM_DFT_FINAL_CHECK_SCAN_DEF_REPORT}
-    write_test_model -format ctl -output ${RESULTS_DIR}/${DCRM_DFT_FINAL_CTL_OUTPUT_FILE}
+    if {$ENABLE_DFT} {
 
-    report_dft_signal > ${REPORTS_DIR}/${DCRM_DFT_FINAL_DFT_SIGNALS_REPORT}
+            write_scan_def -output ${RESULTS_DIR}/${DCRM_DFT_FINAL_SCANDEF_OUTPUT_FILE}
+            check_scan_def > ${REPORTS_DIR}/${DCRM_DFT_FINAL_CHECK_SCAN_DEF_REPORT}
+            write_test_model -format ctl -output ${RESULTS_DIR}/${DCRM_DFT_FINAL_CTL_OUTPUT_FILE}
 
-    # DFT outputs for standard scan mode
+            report_dft_signal > ${REPORTS_DIR}/${DCRM_DFT_FINAL_DFT_SIGNALS_REPORT}
 
-    write_test_protocol -test_mode Internal_scan -output ${RESULTS_DIR}/${DCRM_DFT_FINAL_PROTOCOL_OUTPUT_FILE}
-    current_test_mode Internal_scan
-    report_scan_path > ${REPORTS_DIR}/${DCRM_DFT_FINAL_SCAN_PATH_REPORT}
-    dft_drc
-    dft_drc -verbose > ${REPORTS_DIR}/${DCRM_DFT_DRC_FINAL_REPORT}
+            # DFT outputs for standard scan mode
 
-    # DFT outputs for compressed scan mode
-    # If you have defined you own test modes, change the name of the test mode from 
-    # "ScanCompression_mode" to the one that you have specified using define_test_mode command.
+            write_test_protocol -test_mode Internal_scan -output ${RESULTS_DIR}/${DCRM_DFT_FINAL_PROTOCOL_OUTPUT_FILE}
+            current_test_mode Internal_scan
+            report_scan_path > ${REPORTS_DIR}/${DCRM_DFT_FINAL_SCAN_PATH_REPORT}
+            dft_drc
+            dft_drc -verbose > ${REPORTS_DIR}/${DCRM_DFT_DRC_FINAL_REPORT}
 
-    write_test_protocol -test_mode ScanCompression_mode -output ${RESULTS_DIR}/${DCRM_DFT_FINAL_SCAN_COMPR_PROTOCOL_OUTPUT_FILE}
-    current_test_mode ScanCompression_mode
-    report_scan_path > ${REPORTS_DIR}/${DCRM_DFT_FINAL_SCAN_COMPR_SCAN_PATH_REPORT}
-    dft_drc 
-    dft_drc -verbose > ${REPORTS_DIR}/${DCRM_DFT_DRC_FINAL_SCAN_COMPR_REPORT}
+            # DFT outputs for compressed scan mode
+            # If you have defined you own test modes, change the name of the test mode from 
+            # "ScanCompression_mode" to the one that you have specified using define_test_mode command.
+
+            write_test_protocol -test_mode ScanCompression_mode -output ${RESULTS_DIR}/${DCRM_DFT_FINAL_SCAN_COMPR_PROTOCOL_OUTPUT_FILE}
+            current_test_mode ScanCompression_mode
+            report_scan_path > ${REPORTS_DIR}/${DCRM_DFT_FINAL_SCAN_COMPR_SCAN_PATH_REPORT}
+            dft_drc 
+            dft_drc -verbose > ${REPORTS_DIR}/${DCRM_DFT_DRC_FINAL_SCAN_COMPR_REPORT}
+
+    } else {
+        puts "RM-Info: Skipping DFT test-model, scan, and protocol outputs."
+    }
 
 #################################################################################
 # Write out Design Data
@@ -1190,9 +1252,7 @@ if {[shell_is_in_topographical_mode]} {
   set_active_scenarios -all
   foreach scenario [all_active_scenarios] {
     current_scenario ${scenario}
-    read_sdc [dcrm_mcmm_filename ${DCRM_SDC_INPUT_FILE} ${scenario}]
-    # smkcow : below is alternative
-    #source [dcrm_mcmm_filename ${DCRM_CONSTRAINTS_INPUT_FILE} ${scenario}]
+    # Constraints are already active for this scenario; do not read SDC again.
 
     # Write parasitics data from Design Compiler Topographical placement for static timing analysis
     write_parasitics -output ${RESULTS_DIR}/[dcrm_mcmm_filename ${DCRM_DCT_FINAL_SPEF_OUTPUT_FILE} ${scenario}]
@@ -1200,7 +1260,8 @@ if {[shell_is_in_topographical_mode]} {
     # Write SDF backannotation data from Design Compiler Topographical placement for static timing analysis
     write_sdf ${RESULTS_DIR}/[dcrm_mcmm_filename ${DCRM_DCT_FINAL_SDF_OUTPUT_FILE} ${scenario}]
 
-    write_sdc -nosplit ${RESULTS_DIR}/[dcrm_mcmm_filename ${DCRM_FINAL_SDC_OUTPUT_FILE} ${scenario}]
+    # W-2024.09 supports SDC through version 2.1.
+    write_sdc -version 2.1 -nosplit ${RESULTS_DIR}/[dcrm_mcmm_filename ${DCRM_FINAL_SDC_OUTPUT_FILE} ${scenario}]
   }
 
   current_scenario ${current_scenario_saved}
@@ -1218,6 +1279,52 @@ saif_map -type ptpx -write_map ${RESULTS_DIR}/${DESIGN_NAME}.mapped.SAIF.namemap
 #################################################################################
 # Generate Final Reports
 #################################################################################
+
+
+#################################################################################
+# Scenario-Specific Timing and Constraint Reports
+#################################################################################
+
+set SAVED_REPORT_SCENARIO [current_scenario]
+
+foreach SCENARIO [all_active_scenarios] {
+    current_scenario $SCENARIO
+
+    redirect -tee \
+        -file "${REPORTS_DIR}/${DESIGN_NAME}.${SCENARIO}.check_timing.rpt" {
+            check_timing
+        }
+
+    redirect -tee \
+        -file "${REPORTS_DIR}/${DESIGN_NAME}.${SCENARIO}.constraints.rpt" {
+            report_constraint -all_violators
+        }
+
+    redirect -tee \
+        -file "${REPORTS_DIR}/${DESIGN_NAME}.${SCENARIO}.timing_max.rpt" {
+            report_timing \
+                -delay_type max \
+                -transition_time \
+                -nets \
+                -attributes \
+                -max_paths 20 \
+                -nosplit
+        }
+
+    redirect -tee \
+        -file "${REPORTS_DIR}/${DESIGN_NAME}.${SCENARIO}.timing_min.rpt" {
+            report_timing \
+                -delay_type min \
+                -transition_time \
+                -nets \
+                -attributes \
+                -max_paths 20 \
+                -nosplit
+        }
+}
+
+current_scenario $SAVED_REPORT_SCENARIO
+
 
 redirect -tee -file ${REPORTS_DIR}/${DESIGN_NAME}.report_constraint.reports {report_constraint -all_violators}
 report_constraint -all_violators -verbose >> ${REPORTS_DIR}/${DESIGN_NAME}.report_constraint.reports
@@ -1262,18 +1369,9 @@ if {[shell_is_in_topographical_mode]} {
 # Uncomment the next line to report all the multibit registers and the banking ratio in the design
 # redirect ${REPORTS_DIR}/${DCRM_MULTIBIT_BANKING_REPORT} {report_multibit_banking -nosplit }
 
-# Use SAIF file for power analysis
- set current_scenario_saved [current_scenario]
- foreach scenario [all_active_scenarios] {
-   current_scenario ${scenario}
 
-   #read_saif -auto_map_names -input ${DESIGN_NAME}.${scenario}.saif -instance < DESIGN_INSTANCE > -verbose
-   read_saif -auto_map_names -input ../SIM/FUNCTION/${DESIGN_NAME}.saif -instance TB_${DESIGN_NAME}/U${DESIGN_NAME} -verbose
-
-   #report_saif -rtl_saif is will be used in case of reading RTL sources
-   report_saif -hierarchy -missing -rtl_saif > ${RESULTS_DIR}/${DESIGN_NAME}_${current_scenario_saved}.saif
- }
- current_scenario ${current_scenario_saved}
+# SAIF activity, when selected, was already annotated once in the
+# Optional SAIF Annotation section after incremental compilation.
 
 
 report_power -analysis_effort high -verbose -scenarios [all_active_scenarios] -nosplit -hierarchy -levels 3 > ${REPORTS_DIR}/${DCRM_FINAL_POWER_REPORT}
@@ -1387,4 +1485,3 @@ $PDK/memory/BE/cmos28lpp_ra1w_hd_1024x17m8_frame.ndm \
 "   -technology $LIB_DIR/sc9_lnr28lpp_7U1x_2T8x_LB.icc2.tf -work_dir my_work_dir -icc2_executable /tools/synopsys/ICC2/N-2017.09-SP5/bin/icc2_shell
 
 #start_icc2
-

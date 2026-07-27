@@ -1,23 +1,24 @@
-module PULSE_GENERATOR_LSFR #(
-    parameter NUM_VALUES  = 8,
-    parameter VALUE_WIDTH = 16
+// Generates stochastic pulses from one independent random word per lane.
+module PULSE_GENERATOR #(
+    parameter integer CROSSBAR_DIMENSION = 8, // Number of lanes in this X or D vector.
+    parameter integer STOCHASTIC_VALUE_WIDTH = 16 // Bits per unsigned normalized fixed-point value.
 ) (
-    input  wire [VALUE_WIDTH-1:0]            LFSR_VALUE,
-    input  wire [NUM_VALUES*VALUE_WIDTH-1:0] INPUT_VALUES,
-
-    output reg  [NUM_VALUES-1:0]             PULSES
+    input  wire [CROSSBAR_DIMENSION*STOCHASTIC_VALUE_WIDTH-1:0] RANDOM_VALUES, // Packed independent random values in [0,1].
+    input  wire [CROSSBAR_DIMENSION*STOCHASTIC_VALUE_WIDTH-1:0] INPUT_VALUES, // Packed normalized X or D values in [0,1].
+    output wire [CROSSBAR_DIMENSION-1:0] PULSES // One stochastic pulse bit per lane.
 );
 
-    integer i;
-
-    always @(*) begin
-        PULSES = {NUM_VALUES{1'b0}};
-
-        for (i = 0; i < NUM_VALUES; i = i + 1) begin
-            PULSES[i] =
-                LFSR_VALUE <
-                INPUT_VALUES[i*VALUE_WIDTH +: VALUE_WIDTH];
+    genvar lane;
+    generate
+        for (lane = 0; lane < CROSSBAR_DIMENSION;
+             lane = lane + 1) begin : GEN_PULSE
+            // Both operands use the same unsigned normalized [0,1] encoding.
+            assign PULSES[lane] =
+                RANDOM_VALUES[
+                    lane*STOCHASTIC_VALUE_WIDTH +: STOCHASTIC_VALUE_WIDTH] <
+                INPUT_VALUES[
+                    lane*STOCHASTIC_VALUE_WIDTH +: STOCHASTIC_VALUE_WIDTH];
         end
-    end
+    endgenerate
 
 endmodule

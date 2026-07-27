@@ -3,3 +3,9 @@
 /SIM/FUNCTION/.*
 /SIM/FUNCTION/.fsm.sch.verilog.xml
 /SIM/FUNCTION/fsdb_auto.tcl
+/SYN_topo/runs
+*.log
+/SYN_topo/WORK
+/SYN_topo/MY_DESIGN_*
+*pes.bat
+*default.svf
