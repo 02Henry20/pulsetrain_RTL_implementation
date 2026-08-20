@@ -1,8 +1,14 @@
-# Linux EDA inputs must remain LF when edited from Windows.
+# Linux EDA and experiment inputs must remain LF when edited from Windows.
 *.sh text eol=lf
 *.csh text eol=lf
 *.tcl text eol=lf
 *.f text eol=lf
 *.v text eol=lf
+*.sv text eol=lf
 *.vh text eol=lf
-CUSTOM/architectures*.txt text eol=lf
+*.py text eol=lf
+*.conf text eol=lf
+*.csv text eol=lf
+*.md text eol=lf
+CUSTOM/architectures.txt text eol=lf
+graphify-out/graph.json merge=graphify

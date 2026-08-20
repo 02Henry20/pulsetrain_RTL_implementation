@@ -1,2 +1,7 @@
-logs/
-results/
+/results/
+/logs/
+/work/
+/__pycache__/
+*.pyc
+*.orig
+.msys*

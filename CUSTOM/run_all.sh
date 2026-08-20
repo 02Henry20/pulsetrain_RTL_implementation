@@ -1,444 +1,180 @@
 #!/usr/bin/env bash
-
 set -uo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-SIM_DIR="${PROJECT_ROOT}/SIM/FUNCTION"
-SYNTH_DIR="${PROJECT_ROOT}/SYN_topo"
-RTL_ARCH_DIR="${PROJECT_ROOT}/RTL/architectures"
-TB_DIR="${PROJECT_ROOT}/SIM/TESTBENCH"
-CONFIG_FILE="${ARCHITECTURE_CONFIG:-${SCRIPT_DIR}/architectures.txt}"
-LOG_DIR="${SCRIPT_DIR}/logs"
+CONFIG_FILE="${SCRIPT_DIR}/experiment.conf"
+ARCH_FILE="${SCRIPT_DIR}/architectures.txt"
 RESULT_DIR="${SCRIPT_DIR}/results"
-STATUS_FILE="${RESULT_DIR}/run_status.csv"
+PER_UPDATE_DIR="${RESULT_DIR}/per_update"
+LOG_DIR="${SCRIPT_DIR}/logs"
+WORK_DIR="${SCRIPT_DIR}/work"
+STATUS_FILE="${WORK_DIR}/run_status.csv"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
-usage() {
-    cat <<'EOF'
-Usage: bash CUSTOM/run_all.sh [--keep-old]
-
-Runs functional simulation, SAIF generation, and synthesis for every enabled
-entry in CUSTOM/architectures.txt. Raw tool output is stored under CUSTOM/logs.
-
-Options:
-  --keep-old  Deprecated compatibility option; disabled runs are always kept.
-  -h, --help  Show this help.
-EOF
+status() { printf '%-5s %s\n' "$1" "$2"; }
+record_status() {
+    printf '%s,%s,%s,%s,%s\n' "$1" "$2" "$3" "$4" "$5" >> "${STATUS_FILE}"
 }
-
-while (($# > 0)); do
-    case "$1" in
-        --keep-old)
-            # Disabled architecture data is preserved by default.
-            ;;
-        -h|--help)
-            usage
-            exit 0
-            ;;
-        *)
-            printf 'ERROR: Unknown option: %s\n' "$1" >&2
-            usage >&2
-            exit 2
-            ;;
-    esac
-    shift
-done
-
-if [[ ! -d "${RTL_ARCH_DIR}" || ! -f "${SIM_DIR}/execute_function.csh" ||
-      ! -f "${SYNTH_DIR}/run_synthesis" ]]; then
-    printf 'ERROR: Project layout is not valid below %s\n' "${PROJECT_ROOT}" >&2
-    exit 2
-fi
 
 if [[ ! -f "${CONFIG_FILE}" ]]; then
-    printf 'ERROR: Architecture configuration not found: %s\n' "${CONFIG_FILE}" >&2
-    exit 2
+    status FAIL "missing ${CONFIG_FILE}"
+    exit 1
 fi
+# shellcheck source=/dev/null
+source "${CONFIG_FILE}"
 
-missing_tools=()
-for tool in tcsh vcs fsdb2vcd vcd2saif dc_shell "${PYTHON_BIN}"; do
-    if ! command -v "${tool}" >/dev/null 2>&1; then
-        missing_tools+=("${tool}")
+required_positive=(CROSSBAR_DIMENSION MAX_BL STOCHASTIC_VALUE_WIDTH OUTPUT_BUFFER_DEPTH DIGITAL_CLOCK_NS SYNTH_TARGET_PERIOD_NS)
+for name in "${required_positive[@]}"; do
+    value="${!name:-}"
+    if [[ ! "${value}" =~ ^[0-9]+([.][0-9]+)?$ ]] || [[ "${value}" == "0" ]]; then
+        status FAIL "${name} must be positive in experiment.conf"
+        exit 1
+    fi
+done
+if [[ ${#PULSE_TIMES_NS[@]} -eq 0 ]]; then
+    status FAIL "PULSE_TIMES_NS must contain at least one value"
+    exit 1
+fi
+for pulse in "${PULSE_TIMES_NS[@]}"; do
+    if [[ ! "${pulse}" =~ ^[1-9][0-9]*$ ]]; then
+        status FAIL "pulse times must be positive integer nanoseconds"
+        exit 1
     fi
 done
 
-if ((${#missing_tools[@]} > 0)); then
-    printf 'ERROR: Required tools are not available: %s\n' "${missing_tools[*]}" >&2
-    printf 'Load the Synopsys environment, then run this script again.\n' >&2
-    exit 2
+mapfile -t ARCHITECTURES < <(
+    sed -e 's/[[:space:]]*#.*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "${ARCH_FILE}" |
+        awk 'NF {print}'
+)
+if [[ ${#ARCHITECTURES[@]} -eq 0 ]]; then
+    status FAIL "no architectures enabled in ${ARCH_FILE}"
+    exit 1
 fi
-
-declare -a ARCHITECTURES=()
-declare -A SEEN_ARCHITECTURES=()
-
-while IFS= read -r raw_line || [[ -n "${raw_line}" ]]; do
-    line="${raw_line%%#*}"
-    read -r architecture _ <<<"${line}"
-    [[ -z "${architecture:-}" ]] && continue
-
-    if [[ ! "${architecture}" =~ ^[a-z0-9_]+$ ]]; then
-        printf 'ERROR: Invalid architecture name in %s: %s\n' \
-            "${CONFIG_FILE}" "${architecture}" >&2
-        exit 2
-    fi
-
-    if [[ -n "${SEEN_ARCHITECTURES[${architecture}]:-}" ]]; then
-        printf 'ERROR: Duplicate architecture in %s: %s\n' \
-            "${CONFIG_FILE}" "${architecture}" >&2
-        exit 2
-    fi
-
-    SEEN_ARCHITECTURES["${architecture}"]=1
-    ARCHITECTURES+=("${architecture}")
-done < "${CONFIG_FILE}"
-
-if ((${#ARCHITECTURES[@]} == 0)); then
-    printf 'ERROR: No architectures are enabled in %s\n' "${CONFIG_FILE}" >&2
-    exit 2
-fi
-
-for architecture in "${ARCHITECTURES[@]}"; do
-    architecture_upper="${architecture^^}"
-    testbench="TB_TOP_${architecture_upper}"
-
-    if [[ ! -d "${RTL_ARCH_DIR}/${architecture}" ]]; then
-        printf 'ERROR: RTL architecture directory is missing: %s\n' \
-            "${RTL_ARCH_DIR}/${architecture}" >&2
-        exit 2
-    fi
-    if [[ ! -f "${SIM_DIR}/filelists/${architecture}.f" ]]; then
-        printf 'ERROR: Simulation file list is missing: %s\n' \
-            "${SIM_DIR}/filelists/${architecture}.f" >&2
-        exit 2
-    fi
-    expected_top="../../RTL/architectures/${architecture}/TOP.v"
-    if ! grep -Fxq "${expected_top}" "${SIM_DIR}/filelists/${architecture}.f"; then
-        printf 'ERROR: Simulation file list selects the wrong TOP wrapper: %s\n' \
-            "${SIM_DIR}/filelists/${architecture}.f" >&2
-        printf 'Expected entry: %s\n' "${expected_top}" >&2
-        exit 2
-    fi
-
-    if [[ ! -f "${TB_DIR}/${testbench}.v" ]]; then
-        printf 'ERROR: Testbench is missing: %s\n' \
-            "${TB_DIR}/${testbench}.v" >&2
-        exit 2
-    fi
-done
-
-safe_remove_tree() {
-    local target="$1"
-    if [[ -z "${target}" || "${target}" == "${PROJECT_ROOT}" ||
-          "${target}" != "${PROJECT_ROOT}"/* ]]; then
-        printf 'ERROR: Refusing to remove unsafe path: %s\n' "${target}" >&2
-        exit 2
-    fi
-    rm -rf -- "${target}"
-}
-
-clean_selected_results() {
-    local architecture
-    local architecture_upper
-    local testbench
-
-    printf '[CLEAN] Removing previous data for %d enabled architectures\n' \
-        "${#ARCHITECTURES[@]}"
-
-    for architecture in "${ARCHITECTURES[@]}"; do
-        architecture_upper="${architecture^^}"
-        testbench="TB_TOP_${architecture_upper}"
-
-        # Remove only the run pair that will be regenerated below.
-        safe_remove_tree "${SIM_DIR}/runs/${architecture}/${testbench}"
-        safe_remove_tree "${SYNTH_DIR}/runs/${architecture}/${testbench}"
-        rm -f -- \
-            "${LOG_DIR}/${architecture}.simulation.log" \
-            "${LOG_DIR}/${architecture}.synthesis.log"
-    done
-}
-
-prepare_status_file() {
-    local temporary_status="${STATUS_FILE}.tmp"
-    local status_line
-    local status_architecture
-
-    printf '%s\n' \
-        'architecture,testbench,simulation_status,synthesis_status,simulation_log,synthesis_log' \
-        > "${temporary_status}"
-
-    if [[ -f "${STATUS_FILE}" ]]; then
-        while IFS= read -r status_line || [[ -n "${status_line}" ]]; do
-            status_architecture="${status_line%%,*}"
-            [[ -z "${status_architecture}" || "${status_architecture}" == "architecture" ]] && continue
-
-            # Keep status rows for architectures excluded from this invocation.
-            if [[ -z "${SEEN_ARCHITECTURES[${status_architecture}]:-}" ]]; then
-                printf '%s\n' "${status_line}" >> "${temporary_status}"
-            fi
-        done < "${STATUS_FILE}"
-    fi
-
-    mv -- "${temporary_status}" "${STATUS_FILE}"
-}
-
-mkdir -p -- "${LOG_DIR}" "${RESULT_DIR}"
-clean_selected_results
-prepare_status_file
-
-simulation_passed() {
-    local architecture="$1"
-    local testbench="$2"
-    local run_dir="${SIM_DIR}/runs/${architecture}/${testbench}"
-    local metrics_file="${run_dir}/architecture_metrics.csv"
-    local simulation_log="${run_dir}/simulation.log"
-    local saif_file="${run_dir}/${architecture}_${testbench}.saif"
-
-    [[ -s "${metrics_file}" && -s "${simulation_log}" && -s "${saif_file}" ]] || return 1
-    grep -q '^RESULT: PASS' "${simulation_log}" || return 1
-    ! grep -q '^RESULT: FAIL' "${simulation_log}" || return 1
-
-    awk -F, '
-        NR == 2 {
-            gsub(/\r/, "", $NF)
-            found = 1
-            status = (($NF + 0) == 0) ? 0 : 1
-        }
-        END {
-            if (!found) exit 1
-            exit status
-        }
-    ' "${metrics_file}"
-}
-
-synthesis_artifacts_valid() {
-    local architecture="$1"
-    local testbench="$2"
-    local run_dir="${SYNTH_DIR}/runs/${architecture}/${testbench}"
-    local reports_dir="${run_dir}/reports"
-    local synthesis_log="${run_dir}/logs/all.log"
-    local required_report
-
-    [[ -s "${synthesis_log}" ]] || return 1
-    ! grep -qE '^(Error:|RM-Error:|Fatal:)' "${synthesis_log}" || return 1
-
-    for required_report in \
-        TOP.mapped.qor.rpt \
-        TOP.mapped.area.rpt \
-        TOP.mapped.power.rpt \
-        TOP.mapped.timing.rpt \
-        TOP.check_design.rpt \
-        TOP.check_timing; do
-        [[ -s "${reports_dir}/${required_report}" ]] || return 1
-    done
-
-    ! grep -qE '^(Error:|RM-Error:|Fatal:)' \
-        "${reports_dir}/TOP.check_design.rpt" \
-        "${reports_dir}/TOP.check_timing"
-}
-
-synthesis_reports_clean() {
-    local architecture="$1"
-    local testbench="$2"
-    local qor_report="${SYNTH_DIR}/runs/${architecture}/${testbench}/reports/TOP.mapped.qor.rpt"
-
-    awk '
-        /Critical Path Slack:/ {
-            setup_slack_seen = 1
-            if (($NF + 0) < 0) violations = 1
-        }
-        /No\. of Violating Paths:/ {
-            setup_seen = 1
-            if (($NF + 0) > 0) violations = 1
-        }
-        /Worst Hold Violation:/ {
-            hold_slack_seen = 1
-        }
-        /No\. of Hold Violations:/ {
-            hold_seen = 1
-        }
-        /Nets With Violations:/ {
-            design_rule_seen = 1
-            if (($NF + 0) > 0) violations = 1
-        }
-        /Max Trans Violations:/ {
-            if (($NF + 0) > 0) violations = 1
-        }
-        /Max Cap Violations:/ {
-            if (($NF + 0) > 0) violations = 1
-        }
-        END {
-            if (!setup_slack_seen || !setup_seen || !hold_slack_seen ||
-                !hold_seen || !design_rule_seen) exit 2
-            exit violations ? 1 : 0
-        }
-    ' "${qor_report}"
-}
-
-synthesis_violation_summary() {
-    local architecture="$1"
-    local testbench="$2"
-    local qor_report="${SYNTH_DIR}/runs/${architecture}/${testbench}/reports/TOP.mapped.qor.rpt"
-
-    awk '
-        /Critical Path Slack:/ && $NF != "uninit" {
-            slack = $NF + 0
-            if (!slack_seen || slack < worst_slack) worst_slack = slack
-            slack_seen = 1
-        }
-        /No\. of Violating Paths:/ {
-            value = $NF + 0
-            if (value > setup_paths) setup_paths = value
-        }
-        /Nets With Violations:/ {
-            value = $NF + 0
-            if (value > drc_nets) drc_nets = value
-        }
-        /Max Trans Violations:/ {
-            value = $NF + 0
-            if (value > transition_nets) transition_nets = value
-        }
-        /Max Cap Violations:/ {
-            value = $NF + 0
-            if (value > capacitance_nets) capacitance_nets = value
-        }
-        END {
-            if (!slack_seen) {
-                printf "setup_paths=%d, worst_setup=unknown, DRC_nets=%d, max_transition=%d, max_capacitance=%d",
-                    setup_paths, drc_nets, transition_nets, capacitance_nets
-            } else {
-                printf "setup_paths=%d, worst_setup=%.3fns, DRC_nets=%d, max_transition=%d, max_capacitance=%d",
-                    setup_paths, worst_slack, drc_nets, transition_nets, capacitance_nets
-            }
-        }
-    ' "${qor_report}"
-}
-
-total=${#ARCHITECTURES[@]}
-synthesis_qor_status() {
-    local architecture="$1"
-    local testbench="$2"
-    local qor_report="${SYNTH_DIR}/runs/${architecture}/${testbench}/reports/TOP.mapped.qor.rpt"
-
-    awk '
-        /Critical Path Slack:/ && $NF != "uninit" {
-            if (($NF + 0) < 0) setup_fail = 1
-        }
-        /No\. of Violating Paths:/ {
-            if (($NF + 0) > 0) setup_fail = 1
-        }
-        /Nets With Violations:|Max Trans Violations:|Max Cap Violations:/ {
-            if (($NF + 0) > 0) drc_fail = 1
-        }
-        END {
-            printf "SETUP %s | DRC %s | HOLD ADVISORY",
-                setup_fail ? "FAIL" : "PASS",
-                drc_fail ? "FAIL" : "PASS"
-        }
-    ' "${qor_report}"
-}
-
-synthesis_completed=0
-report_clean=0
-report_violations=0
-failed=0
-index=0
-
-printf '[INFO ] Enabled architectures: %d\n' "${total}"
-
-for architecture in "${ARCHITECTURES[@]}"; do
-    ((index += 1))
-    architecture_upper="${architecture^^}"
-    testbench="TB_TOP_${architecture_upper}"
-    simulation_log_rel="CUSTOM/logs/${architecture}.simulation.log"
-    synthesis_log_rel="CUSTOM/logs/${architecture}.synthesis.log"
-    simulation_log="${PROJECT_ROOT}/${simulation_log_rel}"
-    synthesis_log="${PROJECT_ROOT}/${synthesis_log_rel}"
-    simulation_status="FAIL"
-    synthesis_status="SKIPPED"
-
-    printf '[RUN  ] [%02d/%02d] %-38s simulation\n' \
-        "${index}" "${total}" "${architecture}"
-    start_seconds=${SECONDS}
-
-    if (cd -- "${SIM_DIR}" && \
-        ./execute_function.csh "${architecture}" "${testbench}") \
-        > "${simulation_log}" 2>&1 && \
-       simulation_passed "${architecture}" "${testbench}"; then
-        simulation_status="PASS"
-        printf '[PASS ] [%02d/%02d] %-38s simulation (%ds)\n' \
-            "${index}" "${total}" "${architecture}" "$((SECONDS - start_seconds))"
-    else
-        ((failed += 1))
-        printf '[FAIL ] [%02d/%02d] %-38s simulation; see %s\n' \
-            "${index}" "${total}" "${architecture}" "${simulation_log_rel}"
-        printf '%s,%s,%s,%s,%s,%s\n' \
-            "${architecture}" "${testbench}" "${simulation_status}" \
-            "${synthesis_status}" "${simulation_log_rel}" "${synthesis_log_rel}" \
-            >> "${STATUS_FILE}"
-        continue
-    fi
-
-    printf '[RUN  ] [%02d/%02d] %-38s synthesis\n' \
-        "${index}" "${total}" "${architecture}"
-    start_seconds=${SECONDS}
-
-    if (cd -- "${SYNTH_DIR}" && \
-        ./run_synthesis "${architecture}" "${testbench}") \
-        > "${synthesis_log}" 2>&1 && \
-       synthesis_artifacts_valid "${architecture}" "${testbench}"; then
-        ((synthesis_completed += 1))
-        if synthesis_reports_clean "${architecture}" "${testbench}"; then
-            synthesis_status="$(synthesis_qor_status "${architecture}" "${testbench}")"
-            ((report_clean += 1))
-            printf '[PASS ] [%02d/%02d] %-38s synthesis and QoR (%ds)\n' \
-                "${index}" "${total}" "${architecture}" "$((SECONDS - start_seconds))"
-        else
-            report_check_status=$?
-            if ((report_check_status == 1)); then
-                synthesis_status="$(synthesis_qor_status "${architecture}" "${testbench}")"
-                ((report_violations += 1))
-                violation_summary="$(synthesis_violation_summary "${architecture}" "${testbench}")"
-                printf '[WARN ] [%02d/%02d] %-38s synthesis complete; %s (%ds)\n' \
-                    "${index}" "${total}" "${architecture}" "${violation_summary}" \
-                    "$((SECONDS - start_seconds))"
-            else
-                synthesis_status="FAIL"
-                ((failed += 1))
-                printf '[FAIL ] [%02d/%02d] %-38s QoR report incomplete; see %s\n' \
-                    "${index}" "${total}" "${architecture}" \
-                    "SYN_topo/runs/${architecture}/${testbench}/reports/TOP.mapped.qor.rpt"
-            fi
-        fi
-    else
-        synthesis_status="FAIL"
-        ((failed += 1))
-        printf '[FAIL ] [%02d/%02d] %-38s synthesis; see %s\n' \
-            "${index}" "${total}" "${architecture}" "${synthesis_log_rel}"
-    fi
-
-    printf '%s,%s,%s,%s,%s,%s\n' \
-        "${architecture}" "${testbench}" "${simulation_status}" \
-        "${synthesis_status}" "${simulation_log_rel}" "${synthesis_log_rel}" \
-        >> "${STATUS_FILE}"
-done
-
-printf '[INFO ] Extracting summary tables\n'
-if ! "${PYTHON_BIN}" "${SCRIPT_DIR}/extract_results.py" \
-    --project-root "${PROJECT_ROOT}" --output-dir "${RESULT_DIR}"; then
-    ((failed += 1))
-    printf '[FAIL ] Summary extraction failed\n' >&2
-fi
-
-printf '\n[DONE ] Synthesis completed: %d/%d; report-clean: %d/%d\n' \
-    "${synthesis_completed}" "${total}" "${report_clean}" "${total}"
-printf '[DONE ] QoR violations: %d; failed stages: %d\n' \
-    "${report_violations}" "${failed}"
-printf '[DONE ] Summary: CUSTOM/results/summary.md\n'
-printf '[DONE ] CSV:     CUSTOM/results/summary.csv\n'
-
-if ((failed > 0 || report_violations > 0)); then
+if [[ ! " ${ARCHITECTURES[*]} " =~ " ${BASELINE_ARCHITECTURE} " ]]; then
+    status FAIL "baseline architecture ${BASELINE_ARCHITECTURE} is not enabled"
     exit 1
 fi
 
-exit 0
+TRACE_PATH="${TRACE_CSV}"
+if [[ "${TRACE_PATH}" != /* ]]; then
+    TRACE_PATH="${SCRIPT_DIR}/${TRACE_PATH}"
+fi
+
+for arch in "${ARCHITECTURES[@]}"; do
+    filelist="${PROJECT_ROOT}/SIM/FUNCTION/filelists/${arch}.f"
+    wrapper="${PROJECT_ROOT}/RTL/architectures/${arch}/TOP.v"
+    if [[ ! "${arch}" =~ ^[a-z0-9_]+$ ]] || [[ ! -f "${wrapper}" ]] || [[ ! -f "${filelist}" ]]; then
+        status FAIL "invalid architecture entry: ${arch}"
+        exit 1
+    fi
+    if [[ $(grep -Fxc "../../RTL/architectures/${arch}/TOP.v" "${filelist}") -ne 1 ]]; then
+        status FAIL "${filelist} must reference exactly its own TOP.v"
+        exit 1
+    fi
+done
+
+rm -rf "${RESULT_DIR}" "${LOG_DIR}" "${WORK_DIR}"
+rm -rf "${PROJECT_ROOT}/SIM/FUNCTION/runs" "${PROJECT_ROOT}/SYN_topo/runs"
+mkdir -p "${PER_UPDATE_DIR}" "${LOG_DIR}/simulation" "${LOG_DIR}/synthesis" "${WORK_DIR}/simulation"
+printf 'stage,architecture,pulse_time_ns,status,log\n' > "${STATUS_FILE}"
+
+status RUN "validating and converting $(basename "${TRACE_PATH}")"
+if ! "${PYTHON_BIN}" "${SCRIPT_DIR}/prepare_trace.py" \
+    "${TRACE_PATH}" "${WORK_DIR}/trace.replay" "${WORK_DIR}/trace_stats.csv" \
+    --dimension "${CROSSBAR_DIMENSION}" --max-bl "${MAX_BL}" \
+    --value-width "${STOCHASTIC_VALUE_WIDTH}"; then
+    status FAIL "trace validation failed"
+    exit 1
+fi
+status PASS "trace validated"
+
+overall_failed=0
+for arch in "${ARCHITECTURES[@]}"; do
+    sim_dir="${WORK_DIR}/simulation/${arch}"
+    compile_log="${LOG_DIR}/simulation/${arch}_compile.log"
+    mkdir -p "${sim_dir}"
+    status RUN "compile ${arch}"
+    if command -v vcs >/dev/null 2>&1 && (
+        cd "${PROJECT_ROOT}/SIM/FUNCTION" &&
+        vcs -full64 -sverilog -timescale=1ns/1ps -top TB_REPLAY \
+            -f "filelists/${arch}.f" "../TESTBENCH/TB_REPLAY.sv" \
+            "-pvalue+TB_REPLAY.CROSSBAR_DIMENSION=${CROSSBAR_DIMENSION}" \
+            "-pvalue+TB_REPLAY.MAX_BL=${MAX_BL}" \
+            "-pvalue+TB_REPLAY.STOCHASTIC_VALUE_WIDTH=${STOCHASTIC_VALUE_WIDTH}" \
+            "-pvalue+TB_REPLAY.OUTPUT_BUFFER_DEPTH=${OUTPUT_BUFFER_DEPTH}" \
+            "-pvalue+TB_REPLAY.DIGITAL_CLOCK_NS=${DIGITAL_CLOCK_NS}" \
+            "-pvalue+TB_REPLAY.LFSR_SEED=${LFSR_SEED}" \
+            -o "${sim_dir}/simv"
+    ) >"${compile_log}" 2>&1; then
+        status PASS "compile ${arch}"
+        record_status compile "${arch}" "" PASS "${compile_log}"
+        compile_ok=1
+    else
+        status FAIL "compile ${arch}; see ${compile_log}"
+        record_status compile "${arch}" "" FAIL "${compile_log}"
+        compile_ok=0
+        overall_failed=1
+    fi
+
+    for pulse in "${PULSE_TIMES_NS[@]}"; do
+        sim_log="${LOG_DIR}/simulation/${arch}_${pulse}ns.log"
+        result_csv="${PER_UPDATE_DIR}/${arch}_${pulse}ns.csv"
+        status RUN "simulate ${arch} at ${pulse} ns"
+        if [[ ${compile_ok} -eq 1 ]] && \
+            "${sim_dir}/simv" \
+                "+TRACE_FILE=${WORK_DIR}/trace.replay" \
+                "+RESULT_FILE=${result_csv}" \
+                "+T_PULSE_NS=${pulse}" \
+                "+ARCHITECTURE=${arch}" >"${sim_log}" 2>&1 && \
+            grep -q '^RESULT: PASS' "${sim_log}"; then
+            status PASS "simulate ${arch} at ${pulse} ns"
+            record_status simulation "${arch}" "${pulse}" PASS "${sim_log}"
+        else
+            status FAIL "simulate ${arch} at ${pulse} ns; see ${sim_log}"
+            record_status simulation "${arch}" "${pulse}" FAIL "${sim_log}"
+            overall_failed=1
+        fi
+    done
+
+    synth_log="${LOG_DIR}/synthesis/${arch}.log"
+    status RUN "synthesize ${arch} (no SAIF)"
+    if command -v dc_shell >/dev/null 2>&1 && (
+        cd "${PROJECT_ROOT}/SYN_topo" &&
+        env CROSSBAR_DIMENSION="${CROSSBAR_DIMENSION}" MAX_BL="${MAX_BL}" \
+            STOCHASTIC_VALUE_WIDTH="${STOCHASTIC_VALUE_WIDTH}" \
+            OUTPUT_BUFFER_DEPTH="${OUTPUT_BUFFER_DEPTH}" \
+            ./run_synthesis "${arch}"
+    ) >"${synth_log}" 2>&1; then
+        status PASS "synthesize ${arch}"
+        record_status synthesis "${arch}" "" PASS "${synth_log}"
+    else
+        status FAIL "synthesize ${arch}; see ${synth_log}"
+        record_status synthesis "${arch}" "" FAIL "${synth_log}"
+        overall_failed=1
+    fi
+done
+
+cp "${STATUS_FILE}" "${RESULT_DIR}/run_status.csv"
+status RUN "aggregate CSV and Markdown results"
+if "${PYTHON_BIN}" "${SCRIPT_DIR}/extract_results.py" \
+    --architectures "${ARCHITECTURES[@]}" \
+    --pulse-times "${PULSE_TIMES_NS[@]}" \
+    --baseline "${BASELINE_ARCHITECTURE}" \
+    --per-update-dir "${PER_UPDATE_DIR}" \
+    --synth-root "${PROJECT_ROOT}/SYN_topo/runs" \
+    --trace-stats "${WORK_DIR}/trace_stats.csv" \
+    --run-status "${STATUS_FILE}" --output-dir "${RESULT_DIR}" \
+    --trace "$(basename "${TRACE_PATH}")" --dimension "${CROSSBAR_DIMENSION}" \
+    --max-bl "${MAX_BL}" --clock-ns "${DIGITAL_CLOCK_NS}" \
+    --seed "${LFSR_SEED}" --target-period-ns "${SYNTH_TARGET_PERIOD_NS}"; then
+    status PASS "results generated"
+else
+    status FAIL "one or more simulation/synthesis stages failed"
+    overall_failed=1
+fi
+
+printf '\nReport: %s\nLatency CSV: %s\nSynthesis CSV: %s\nSummary CSV: %s\n' \
+    "${RESULT_DIR}/summary.md" "${RESULT_DIR}/latency.csv" \
+    "${RESULT_DIR}/synthesis.csv" "${RESULT_DIR}/summary.csv"
+exit "${overall_failed}"

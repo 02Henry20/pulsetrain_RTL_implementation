@@ -4,6 +4,7 @@
 ../../RTL/common/SORT.v
 ../../RTL/common/ZERO_DELETE.v
 ../../RTL/common/GROUP_MASK.v
+../../RTL/common/GROUP_MASK_AFTER_SORTED.v
 ../../RTL/common/OUTPUT_BUFFER.v
 ../../RTL/common/ARCH_TOP.v
 ../../RTL/architectures/baseline/TOP.v

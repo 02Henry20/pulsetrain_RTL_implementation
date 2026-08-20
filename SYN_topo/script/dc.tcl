@@ -75,42 +75,6 @@ if {[file exists [which ${LIBRARY_DONT_USE_PRE_COMPILE_LIST}]]} {
 set_svf ${RESULTS_DIR}/${DCRM_SVF_OUTPUT_FILE}
 
 #################################################################################
-# Setup SAIF Name Mapping Database
-#
-# Include an RTL SAIF for better power optimization and analysis.
-#
-# saif_map should be issued prior to RTL elaboration to create a name mapping
-# database for better annotation.
-################################################################################
-
-# smkcow :: no time
-saif_map -start
-
-# Below is an example 1 
-#         prompt> saif_map -start
-#         prompt> read_verilog ex.v
-#         prompt> current_design ex
-#         prompt> link
-#         prompt> compile
-#         prompt> read_saif -input ex.rtl.saif -instance tb/u1 -auto_map_names
-
-
-# Below is an example 2
-#         prompt> saif_map -start
-#         prompt> read_verilog ex.v
-#         prompt> current_design ex
-#         prompt> link
-#         prompt> compile
-#         prompt> change_name -rules verilog
-#         prompt> write -f verilog -hier -out ex.gate.v
-#         prompt> saif_map -write_map ex.namemap
-#
-#         prompt> read_verilog ex.gate.v
-#         prompt> saif_map -read_map ex.namemap
-#         prompt> read_saif -input ex.rtl.saif -instance tb/u1 -auto_map_names
-
-
-#################################################################################
 # Read in the RTL Design
 #
 # Read in the RTL source files or read in the elaborated design (.ddc).
@@ -119,7 +83,22 @@ saif_map -start
 define_design_lib WORK -path ./WORK
 
 analyze -format verilog ${RTL_SOURCE_FILES}
-elaborate ${DESIGN_NAME}
+
+set ELABORATION_PARAMETERS [list]
+foreach PARAMETER_NAME {
+    CROSSBAR_DIMENSION MAX_BL STOCHASTIC_VALUE_WIDTH OUTPUT_BUFFER_DEPTH
+} {
+    if {[info exists ::env($PARAMETER_NAME)]} {
+        lappend ELABORATION_PARAMETERS \
+            "${PARAMETER_NAME}=$::env($PARAMETER_NAME)"
+    }
+}
+if {[llength $ELABORATION_PARAMETERS] > 0} {
+    elaborate ${DESIGN_NAME} \
+        -parameters [join $ELABORATION_PARAMETERS ","]
+} else {
+    elaborate ${DESIGN_NAME}
+}
 
 #set uniquify_naming_style "${DESIGN_NAME}_%s_%d"
 #uniquify -force
@@ -1107,64 +1086,6 @@ if { $OPTIMIZATION_FLOW == "hplp" } {
 
 optimize_netlist -area
 
-#################################################################################
-# Optional SAIF Annotation
-#################################################################################
-
-if {
-    [info exists ::env(SAIF_FILE)] &&
-    [info exists ::env(SAIF_INSTANCE)]
-} {
-    set SAIF_FILE     $::env(SAIF_FILE)
-    set SAIF_INSTANCE $::env(SAIF_INSTANCE)
-
-    if {![file exists $SAIF_FILE]} {
-        puts "RM-Error: Selected SAIF file does not exist:"
-        puts "RM-Error:   ${SAIF_FILE}"
-        exit 1
-    }
-
-    puts "============================================================"
-    puts "RM-Info: Reading activity information"
-    puts "RM-Info: SAIF file    : ${SAIF_FILE}"
-    puts "RM-Info: SAIF instance: ${SAIF_INSTANCE}"
-    puts "============================================================"
-
-    set SAVED_SCENARIO [current_scenario]
-
-    foreach SCENARIO [all_active_scenarios] {
-        current_scenario $SCENARIO
-
-        puts "RM-Info: Annotating SAIF for scenario ${SCENARIO}"
-
-        if {
-            [catch {
-                read_saif \
-                    -auto_map_names \
-                    -input $SAIF_FILE \
-                    -instance $SAIF_INSTANCE \
-                    -verbose
-            } SAIF_ERROR]
-        } {
-            puts "RM-Error: SAIF annotation failed:"
-            puts "RM-Error: ${SAIF_ERROR}"
-            exit 1
-        }
-
-        set SAIF_REPORT \
-            "${REPORTS_DIR}/${DESIGN_NAME}.${SCENARIO}.saif.rpt"
-
-        redirect -tee -file $SAIF_REPORT {
-            report_saif
-        }
-    }
-
-    current_scenario $SAVED_SCENARIO
-
-} else {
-    puts "RM-Info: No SAIF selected. Using vectorless/default activity."
-}
-
 }
 #################################################################################
 # Write Out Final Design and Reports
@@ -1370,11 +1291,6 @@ if {[shell_is_in_topographical_mode]} {
 # redirect ${REPORTS_DIR}/${DCRM_MULTIBIT_BANKING_REPORT} {report_multibit_banking -nosplit }
 
 
-# SAIF activity, when selected, was already annotated once in the
-# Optional SAIF Annotation section after incremental compilation.
-
-
-report_power -analysis_effort high -verbose -scenarios [all_active_scenarios] -nosplit -hierarchy -levels 3 > ${REPORTS_DIR}/${DCRM_FINAL_POWER_REPORT}
 report_clock_gating -nosplit > ${REPORTS_DIR}/${DCRM_FINAL_CLOCK_GATING_REPORT}
 
 # Uncomment the next line if you include the -self_gating to the compile_ultra command

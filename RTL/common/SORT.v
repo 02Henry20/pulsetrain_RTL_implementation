@@ -1,95 +1,67 @@
-// Temporally front-loads pulses within each D lane while preserving X order.
+// Buffers one runtime-length frame and front-loads each D lane in time.
 module SORT #(
-    parameter integer CROSSBAR_DIMENSION = 8, // Shared X and D lane count.
-    parameter integer BIT_LENGTH = 32 // Pulse cycles in one complete train set.
+    parameter integer CROSSBAR_DIMENSION = 8,
+    parameter integer MAX_BL = 32
 ) (
-    input  wire                          CLK, // System clock.
-    input  wire                          RST, // Active-low asynchronous reset.
-
-    input  wire                          INPUT_VALID, // Current unsorted X/D pair is valid.
-    input  wire                          INPUT_LAST, // Current pair is the final cycle of this set.
-    output wire                          INPUT_READY, // Sorter can capture another source cycle.
-    input  wire [CROSSBAR_DIMENSION-1:0] X_PULSES_IN, // X cycle retained in its original order.
-    input  wire [CROSSBAR_DIMENSION-1:0] D_PULSES_IN, // D cycle accumulated independently per lane.
-
-    output wire [CROSSBAR_DIMENSION-1:0] X_PULSES_OUT, // Original X cycle at the sorted time index.
-    output wire [CROSSBAR_DIMENSION-1:0] D_PULSES_OUT, // Temporally sorted D layer.
-    output wire                          OUTPUT_VALID, // Sorted X/D pair is available.
-    output wire                          OUTPUT_LAST, // Current output is the final frame cycle.
-    input  wire                          OUTPUT_READY // Downstream can accept the pair.
+    input wire CLK,
+    input wire RST,
+    input wire INPUT_VALID,
+    input wire INPUT_LAST,
+    output wire INPUT_READY,
+    input wire [CROSSBAR_DIMENSION-1:0] X_PULSES_IN,
+    input wire [CROSSBAR_DIMENSION-1:0] D_PULSES_IN,
+    output wire [CROSSBAR_DIMENSION-1:0] X_PULSES_OUT,
+    output wire [CROSSBAR_DIMENSION-1:0] D_PULSES_OUT,
+    output wire OUTPUT_VALID,
+    output wire OUTPUT_LAST,
+    input wire OUTPUT_READY
 );
+    localparam integer INDEX_WIDTH = (MAX_BL <= 1) ? 1 : $clog2(MAX_BL);
+    localparam integer LENGTH_WIDTH = (MAX_BL <= 1) ? 1 : $clog2(MAX_BL + 1);
 
-    localparam integer FRAME_INDEX_WIDTH =
-        (BIT_LENGTH <= 1) ? 1 : $clog2(BIT_LENGTH);
-    localparam integer D_COUNT_WIDTH =
-        (BIT_LENGTH <= 1) ? 1 : $clog2(BIT_LENGTH + 1);
-    localparam [FRAME_INDEX_WIDTH-1:0] LAST_FRAME_INDEX =
-        BIT_LENGTH - 1;
+    reg [CROSSBAR_DIMENSION-1:0] x_frame [0:MAX_BL-1];
+    reg [LENGTH_WIDTH-1:0] d_pulse_count [0:CROSSBAR_DIMENSION-1];
+    reg [INDEX_WIDTH-1:0] input_index;
+    reg [INDEX_WIDTH-1:0] output_index;
+    reg [LENGTH_WIDTH-1:0] frame_length;
+    reg frame_captured;
 
-    // X is buffered but never sorted; output index t always receives input X[t].
-    // Each indexed X slot is written before that layer can become eligible.
-    reg [CROSSBAR_DIMENSION-1:0] x_frame [0:BIT_LENGTH-1];
-    reg [D_COUNT_WIDTH-1:0] d_pulse_count [0:CROSSBAR_DIMENSION-1];
-
-    reg [FRAME_INDEX_WIDTH-1:0] input_index;
-    reg [FRAME_INDEX_WIDTH-1:0] output_index;
-    reg                         frame_captured;
-
-    wire input_fire  = INPUT_VALID && INPUT_READY;
+    wire input_fire = INPUT_VALID && INPUT_READY;
     wire output_fire = OUTPUT_VALID && OUTPUT_READY;
+    assign INPUT_READY = !frame_captured;
+    assign OUTPUT_VALID = frame_captured;
+    assign OUTPUT_LAST = frame_captured &&
+        (output_index == (frame_length - 1'b1));
+    assign X_PULSES_OUT = frame_captured ?
+        x_frame[output_index] : {CROSSBAR_DIMENSION{1'b0}};
 
-    wire [CROSSBAR_DIMENSION-1:0] current_d_layer;
     genvar lane;
     generate
-        for (lane = 0; lane < CROSSBAR_DIMENSION;
-             lane = lane + 1) begin : GEN_D_LAYER
-            // A lane with count N is high in temporal layers 0 through N-1.
-            assign current_d_layer[lane] =
-                d_pulse_count[lane] > output_index;
+        for (lane = 0; lane < CROSSBAR_DIMENSION; lane = lane + 1) begin : GEN_D_LAYER
+            assign D_PULSES_OUT[lane] = frame_captured &&
+                (d_pulse_count[lane] > output_index);
         end
     endgenerate
 
-    // Before frame end, only an all-one layer is final and safe to release.
-    wire saturated_layer_ready = &current_d_layer;
-
-    assign INPUT_READY = !frame_captured;
-    assign OUTPUT_VALID = frame_captured || saturated_layer_ready;
-    assign OUTPUT_LAST = OUTPUT_VALID &&
-        (output_index == LAST_FRAME_INDEX);
-
-    assign X_PULSES_OUT = OUTPUT_VALID ?
-        x_frame[output_index] : {CROSSBAR_DIMENSION{1'b0}};
-    assign D_PULSES_OUT = OUTPUT_VALID ?
-        current_d_layer : {CROSSBAR_DIMENSION{1'b0}};
-
-    integer capture_lane;
-    integer reset_lane;
-
+    integer i;
     always @(posedge CLK or negedge RST) begin
         if (!RST) begin
-            input_index   <= {FRAME_INDEX_WIDTH{1'b0}};
-            output_index  <= {FRAME_INDEX_WIDTH{1'b0}};
+            input_index <= 0;
+            output_index <= 0;
+            frame_length <= 0;
             frame_captured <= 1'b0;
-
-            for (reset_lane = 0;
-                 reset_lane < CROSSBAR_DIMENSION;
-                 reset_lane = reset_lane + 1) begin
-                d_pulse_count[reset_lane] <= {D_COUNT_WIDTH{1'b0}};
-            end
+            for (i = 0; i < CROSSBAR_DIMENSION; i = i + 1)
+                d_pulse_count[i] <= 0;
         end else begin
             if (input_fire) begin
                 x_frame[input_index] <= X_PULSES_IN;
-
-                for (capture_lane = 0;
-                     capture_lane < CROSSBAR_DIMENSION;
-                     capture_lane = capture_lane + 1) begin
-                    d_pulse_count[capture_lane] <=
-                        d_pulse_count[capture_lane] +
-                        D_PULSES_IN[capture_lane];
-                end
+                for (i = 0; i < CROSSBAR_DIMENSION; i = i + 1)
+                    d_pulse_count[i] <= d_pulse_count[i] + D_PULSES_IN[i];
 
                 if (INPUT_LAST) begin
-                    input_index    <= {FRAME_INDEX_WIDTH{1'b0}};
+                    frame_length <=
+                        {{(LENGTH_WIDTH-INDEX_WIDTH){1'b0}}, input_index} + 1'b1;
+                    input_index <= 0;
                     frame_captured <= 1'b1;
                 end else begin
                     input_index <= input_index + 1'b1;
@@ -98,21 +70,14 @@ module SORT #(
 
             if (output_fire) begin
                 if (OUTPUT_LAST) begin
-                    // Final sorted layer accepted: release counters for the next set.
-                    output_index   <= {FRAME_INDEX_WIDTH{1'b0}};
+                    output_index <= 0;
                     frame_captured <= 1'b0;
-
-                    for (reset_lane = 0;
-                         reset_lane < CROSSBAR_DIMENSION;
-                         reset_lane = reset_lane + 1) begin
-                        d_pulse_count[reset_lane] <=
-                            {D_COUNT_WIDTH{1'b0}};
-                    end
+                    for (i = 0; i < CROSSBAR_DIMENSION; i = i + 1)
+                        d_pulse_count[i] <= 0;
                 end else begin
                     output_index <= output_index + 1'b1;
                 end
             end
         end
     end
-
 endmodule

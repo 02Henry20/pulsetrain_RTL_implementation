@@ -1,30 +1,18 @@
-# One architecture per line. Comment out a line to disable that architecture.
-
-
-lfsr_per_input
-lfsr_per_input_group_mask
-lfsr_per_input_sort
-lfsr_per_input_zero_delete
-lfsr_per_input_sort_group_mask
-lfsr_per_input_sort_zero_delete
-lfsr_per_input_sort_zero_delete_group_mask
-lfsr_per_input_sort_zero_delete_standard_group_mask
-lfsr_per_input_zero_delete_group_mask
-
+# One canonical architecture per line. A leading # disables an architecture.
 baseline
-# group_mask
+zero_delete
+sort
+sort_zero_delete
+group_mask
+zero_delete_group_mask
+sort_group_mask
+sort_zero_delete_group_mask
+
 lfsr
-lfsr_group_mask
-lfsr_sort
 lfsr_zero_delete
+lfsr_sort
+lfsr_sort_zero_delete
+lfsr_group_mask
+lfsr_zero_delete_group_mask
 lfsr_sort_group_mask
-# lfsr_sort_zero_delete
 lfsr_sort_zero_delete_group_mask
-lfsr_sort_zero_delete_standard_group_mask
-# lfsr_zero_delete_group_mask
-# sort
-# sort_group_mask
-# sort_zero_delete
-# sort_zero_delete_group_mask
-# zero_delete
-# zero_delete_group_mask

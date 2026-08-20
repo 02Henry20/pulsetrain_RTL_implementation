@@ -1,155 +1,53 @@
 #!/bin/tcsh -f
 
-# Usage:
-# ./run_synthesis zero_delete
-# ./run_synthesis zero_delete TB_TOP_ZERO_DELETE_FULL
-
-if ($#argv < 1 || $#argv > 2) then
-    echo "Usage: $0 <architecture> [testbench]"
-    echo ""
-    echo "Examples:"
-    echo "  $0 zero_delete"
-    echo "  $0 zero_delete TB_TOP_ZERO_DELETE_FULL"
+if ($#argv != 1) then
+    echo "Usage: $0 <architecture>"
     exit 1
 endif
 
-set SCRIPT_DIR   = `dirname "$0"`
-set SYNTH_DIR    = `cd "${SCRIPT_DIR}" && pwd`
+set SCRIPT_DIR = `dirname "$0"`
+set SYNTH_DIR = `cd "${SCRIPT_DIR}" && pwd`
 set PROJECT_ROOT = `cd "${SYNTH_DIR}/.." && pwd`
-
-cd "${SYNTH_DIR}"
-
 set SELECTED_ARCH = "$argv[1]"
-
-if ($#argv == 2) then
-    set SELECTED_TB = "$argv[2]"
-    set RUN_LABEL   = "${SELECTED_TB}"
-    set USE_SAIF    = 1
-else
-    set SELECTED_TB = ""
-    set RUN_LABEL   = "no_saif"
-    set USE_SAIF    = 0
-endif
-
 set FILELIST = "${PROJECT_ROOT}/SIM/FUNCTION/filelists/${SELECTED_ARCH}.f"
-
-set RUN_DIR     = "${SYNTH_DIR}/runs/${SELECTED_ARCH}/${RUN_LABEL}"
-set LOG_DIR     = "${RUN_DIR}/logs"
+set RUN_DIR = "${SYNTH_DIR}/runs/${SELECTED_ARCH}/no_saif"
+set LOG_DIR = "${RUN_DIR}/logs"
 set REPORTS_DIR = "${RUN_DIR}/reports"
 set RESULTS_DIR = "${RUN_DIR}/results"
-set LOG_FILE    = "${LOG_DIR}/all.log"
-
-set MW_LIB_NAME = "MY_DESIGN_LIB_${SELECTED_ARCH}_${RUN_LABEL}"
+set LOG_FILE = "${LOG_DIR}/all.log"
+set MW_LIB_NAME = "MY_DESIGN_LIB_${SELECTED_ARCH}_no_saif"
 
 if (! -e "${FILELIST}") then
-    echo "ERROR: Architecture file list not found:"
-    echo "  ${FILELIST}"
+    echo "ERROR: architecture file list not found: ${FILELIST}"
     exit 1
 endif
-
 if (! -e "${SYNTH_DIR}/script/dc.tcl") then
-    echo "ERROR: Design Compiler script not found:"
-    echo "  ${SYNTH_DIR}/script/dc.tcl"
+    echo "ERROR: Design Compiler script not found"
     exit 1
 endif
 
-if ($?SAIF_FILE) then
-    unsetenv SAIF_FILE
-endif
-
-if ($?SAIF_INSTANCE) then
-    unsetenv SAIF_INSTANCE
-endif
-
-if ($?SYNTH_TB) then
-    unsetenv SYNTH_TB
-endif
-
-if (${USE_SAIF} == 1) then
-    set SAIF_FILE = "${PROJECT_ROOT}/SIM/FUNCTION/runs/${SELECTED_ARCH}/${SELECTED_TB}/${SELECTED_ARCH}_${SELECTED_TB}.saif"
-    set SAIF_INSTANCE = "${SELECTED_TB}/dut"
-
-    if (! -e "${SAIF_FILE}") then
-        echo "ERROR: Selected SAIF file does not exist:"
-        echo "  ${SAIF_FILE}"
-        echo ""
-        echo "Generate it first with:"
-        echo "  cd ${PROJECT_ROOT}/SIM/FUNCTION"
-        echo "  ./execute_function.csh ${SELECTED_ARCH} ${SELECTED_TB}"
-        exit 1
-    endif
-endif
-
-echo "========================================"
-echo "SYNTHESIS CONFIGURATION"
-echo "========================================"
-echo "Architecture : ${SELECTED_ARCH}"
-echo "Run label    : ${RUN_LABEL}"
-echo "File list    : ${FILELIST}"
-echo "Run directory: ${RUN_DIR}"
-
-if (${USE_SAIF} == 1) then
-    echo "SAIF file    : ${SAIF_FILE}"
-    echo "SAIF instance: ${SAIF_INSTANCE}"
-else
-    echo "SAIF         : disabled"
-endif
-
-echo "========================================"
-
+cd "${SYNTH_DIR}"
 rm -rf "${RUN_DIR}"
-mkdir -p "${LOG_DIR}"
-mkdir -p "${REPORTS_DIR}"
-mkdir -p "${RESULTS_DIR}"
+mkdir -p "${LOG_DIR}" "${REPORTS_DIR}" "${RESULTS_DIR}"
+rm -rf WORK "${MW_LIB_NAME}"
 
-rm -rf WORK
-rm -rf "${MW_LIB_NAME}"
-
-setenv SYNTH_ARCH      "${SELECTED_ARCH}"
-setenv SYNTH_RUN_LABEL "${RUN_LABEL}"
-
-if (${USE_SAIF} == 1) then
-    setenv SYNTH_TB      "${SELECTED_TB}"
-    setenv SAIF_FILE     "${SAIF_FILE}"
-    setenv SAIF_INSTANCE "${SAIF_INSTANCE}"
-endif
-
-echo ""
-echo "Starting Design Compiler..."
-echo ""
+setenv SYNTH_ARCH "${SELECTED_ARCH}"
+setenv SYNTH_RUN_LABEL "no_saif"
+unsetenv SAIF_FILE
+unsetenv SAIF_INSTANCE
 
 dc_shell -topo -f script/dc.tcl >&! "${LOG_FILE}"
 set DC_STATUS = $status
 
-cat "${LOG_FILE}"
-
 if (${DC_STATUS} != 0) then
-    echo ""
-    echo "Synthesis failed."
-    echo "Log:"
-    echo "  ${LOG_FILE}"
+    echo "ERROR: synthesis failed; see ${LOG_FILE}"
     exit ${DC_STATUS}
 endif
-
 grep -qE "^(Error:|RM-Error:)" "${LOG_FILE}"
-
 if ($status == 0) then
-    echo ""
-    echo "Synthesis completed with errors."
-    echo "Inspect:"
-    echo "  ${LOG_FILE}"
+    echo "ERROR: synthesis completed with reported errors; see ${LOG_FILE}"
     exit 1
 endif
 
-echo ""
-echo "========================================"
-echo "SYNTHESIS COMPLETED"
-echo "========================================"
-echo "Architecture: ${SELECTED_ARCH}"
-echo "Activity run: ${RUN_LABEL}"
-echo "Reports     : ${REPORTS_DIR}"
-echo "Results     : ${RESULTS_DIR}"
-echo "Log         : ${LOG_FILE}"
-echo "========================================"
-
+echo "PASS: synthesis ${SELECTED_ARCH}"
 exit 0
