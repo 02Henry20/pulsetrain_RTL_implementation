@@ -1,0 +1,17 @@
+architecture,expected_events,expected_outputs,expected_frames,model_cycles
+baseline,2304,2048,256,2817
+group_mask,1660,1404,256,4477
+lfsr,2304,2048,256,2817
+lfsr_group_mask,1660,1404,256,4477
+lfsr_sort,2304,2048,256,4546
+lfsr_sort_group_mask,1612,1356,256,6158
+lfsr_sort_zero_delete,1233,977,256,4334
+lfsr_sort_zero_delete_group_mask,1203,947,256,5749
+lfsr_zero_delete,1364,1108,256,2694
+lfsr_zero_delete_group_mask,1344,1088,256,4161
+sort,2304,2048,256,4546
+sort_group_mask,1612,1356,256,6158
+sort_zero_delete,1233,977,256,4334
+sort_zero_delete_group_mask,1203,947,256,5749
+zero_delete,1364,1108,256,2694
+zero_delete_group_mask,1344,1088,256,4161

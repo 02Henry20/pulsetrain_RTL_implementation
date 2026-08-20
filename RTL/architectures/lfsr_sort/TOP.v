@@ -1,7 +1,7 @@
 // Square crossbar model: X and D vectors share CROSSBAR_DIMENSION lanes.
 module TOP #(
     parameter integer CROSSBAR_DIMENSION = 8, // X input lanes and D output/error lanes.
-    parameter integer BIT_LENGTH = 32, // Accepted pulse cycles in one complete train set.
+    parameter integer BIT_LENGTH = 8, // Accepted pulse cycles in one complete train set.
     parameter integer STOCHASTIC_VALUE_WIDTH = 16, // Bits per unsigned normalized fixed-point value.
     parameter integer OUTPUT_BUFFER_DEPTH = 10, // Number of queued X/D pulse pairs.
     parameter [STOCHASTIC_VALUE_WIDTH-1:0] LFSR_SEED = 16'hACE1 // Nonzero initial LFSR state.

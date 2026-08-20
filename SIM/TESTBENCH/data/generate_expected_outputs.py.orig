@@ -9,7 +9,7 @@ import sys
 
 
 DIMENSION = 8
-BIT_LENGTH = 32
+BIT_LENGTH = 8
 VALUE_WIDTH = 16
 OUTPUT_BUFFER_DEPTH = 10
 SAMPLE_COUNT = 2048
@@ -118,18 +118,21 @@ def xorshift32(value):
 
 
 def generate_random_pairs():
-    state = RANDOM_SEED
+    """Match the shared RTL LFSR sequence for fair external/LFSR comparison."""
+    lfsr_value = LFSR_SEED
+    d_delay_1 = LFSR_SEED
+    d_delay_2 = LFSR_SEED
     pairs = []
     for _sample in range(SAMPLE_COUNT):
-        x_values = []
-        d_values = []
-        for _lane in range(DIMENSION):
-            state = xorshift32(state)
-            x_values.append(state & VALUE_MASK)
-        for _lane in range(DIMENSION):
-            state = xorshift32(state)
-            d_values.append(state & VALUE_MASK)
-        pairs.append((tuple(x_values), tuple(d_values)))
+        pairs.append((
+            (lfsr_value,) * DIMENSION,
+            (d_delay_2,) * DIMENSION,
+        ))
+        old_lfsr = lfsr_value
+        old_d_delay_1 = d_delay_1
+        lfsr_value = next_lfsr(old_lfsr)
+        d_delay_1 = old_lfsr
+        d_delay_2 = old_d_delay_1
     return pairs
 
 
@@ -206,12 +209,17 @@ class GoldenArchitecture(object):
         self.group_drain_index = 0
         self.group_layer_index = 0
         self.group_frame_done = False
+        self.group_pending = None
+        self.group_input_closed = False
 
         self.fifo = deque()
         self.events = []
         self.accepted_samples = 0
         self.completed_frames = 0
         self.cycle = 0
+        self.transform_input_updates = [0] * (DIMENSION * DIMENSION)
+        self.transform_output_updates = [0] * (DIMENSION * DIMENSION)
+        self.validated_transform_frames = 0
 
     def group_outputs(self):
         if self.group_state != "drain":
@@ -227,6 +235,15 @@ class GoldenArchitecture(object):
             for count in group["counts"]
         )
         return True, x_output, group["d"], another_layer
+
+    def accumulate_crossbar_update(self, counts, x_pulses, d_pulses):
+        for x_lane in range(DIMENSION):
+            if not x_pulses[x_lane]:
+                continue
+            for d_lane in range(DIMENSION):
+                if d_pulses[d_lane]:
+                    update_index = x_lane * DIMENSION + d_lane
+                    counts[update_index] += 1
 
     def run(self, stimuli, random_pairs):
         driver_started = False
@@ -319,7 +336,10 @@ class GoldenArchitecture(object):
                 group_d_output,
                 another_group_layer,
             ) = self.group_outputs()
-            group_input_ready = self.group_state == "capture"
+            group_input_ready = (
+                self.group_state == "capture" and
+                not self.group_input_closed
+            )
 
             if self.enable_group_mask:
                 preprocess_ready = group_input_ready
@@ -367,6 +387,35 @@ class GoldenArchitecture(object):
                 fifo_ready
             )
             fifo_push = pulse_pair_valid and fifo_ready
+
+            transform_input_fire = preprocess_valid and preprocess_ready
+            if transform_input_fire:
+                self.accumulate_crossbar_update(
+                    self.transform_input_updates,
+                    x_preprocessed,
+                    d_preprocessed,
+                )
+            if fifo_push:
+                self.accumulate_crossbar_update(
+                    self.transform_output_updates,
+                    x_to_buffer,
+                    d_to_buffer,
+                )
+            if preprocessing_frame_done:
+                if self.transform_input_updates != self.transform_output_updates:
+                    raise AssertionError(
+                        "{} preprocessing changed frame {} crossbar updates".format(
+                            self.architecture,
+                            self.validated_transform_frames,
+                        )
+                    )
+                self.validated_transform_frames += 1
+                self.transform_input_updates = [0] * (
+                    DIMENSION * DIMENSION
+                )
+                self.transform_output_updates = [0] * (
+                    DIMENSION * DIMENSION
+                )
 
             frame_done_event = self.frame_done
             if fifo_valid:
@@ -422,41 +471,62 @@ class GoldenArchitecture(object):
 
             self.group_frame_done = False
             if self.enable_group_mask:
-                if self.group_state == "capture" and group_input_fire:
-                    if keep_pair:
-                        matching_group = None
-                        for group in self.groups:
-                            if group["d"] == d_preprocessed:
-                                matching_group = group
-                                break
+                if self.group_state == "capture":
+                    # Commit the lookup captured on the preceding cycle.
+                    pending = self.group_pending
+                    self.group_pending = None
 
-                        if matching_group is None:
-                            self.groups.append({
-                                "d": d_preprocessed,
-                                "counts": list(x_preprocessed),
-                            })
-                        else:
-                            matching_group["counts"] = [
-                                count + pulse
-                                for count, pulse in zip(
-                                    matching_group["counts"],
-                                    x_preprocessed,
-                                )
-                            ]
+                    if pending is not None:
+                        (
+                            pending_x,
+                            pending_d,
+                            pending_keep,
+                            pending_last,
+                        ) = pending
 
-                    if preprocess_last:
-                        if self.groups:
-                            self.group_state = "drain"
-                            self.group_drain_index = 0
-                            self.group_layer_index = 0
-                        else:
-                            self.groups = []
-                            self.group_frame_done = True
+                        if pending_keep:
+                            matching_group = None
+                            for group in self.groups:
+                                if group["d"] == pending_d:
+                                    matching_group = group
+                                    break
 
-                elif (
-                    self.group_state == "drain" and
-                    group_output_fire
-                ):
+                            if matching_group is None:
+                                self.groups.append({
+                                    "d": pending_d,
+                                    "counts": list(pending_x),
+                                })
+                            else:
+                                matching_group["counts"] = [
+                                    count + pulse
+                                    for count, pulse in zip(
+                                        matching_group["counts"],
+                                        pending_x,
+                                    )
+                                ]
+
+                        if pending_last:
+                            self.group_input_closed = False
+                            if self.groups:
+                                self.group_state = "drain"
+                                self.group_drain_index = 0
+                                self.group_layer_index = 0
+                            else:
+                                self.groups = []
+                                self.group_frame_done = True
+
+                    # Capture remains one pair per cycle until INPUT_LAST.
+                    if group_input_fire:
+                        self.group_pending = (
+                            x_preprocessed,
+                            d_preprocessed,
+                            keep_pair,
+                            preprocess_last,
+                        )
+                        if preprocess_last:
+                            self.group_input_closed = True
+
+                elif group_output_fire:
                     if another_group_layer:
                         self.group_layer_index += 1
                     elif self.group_drain_index < (len(self.groups) - 1):
@@ -467,6 +537,8 @@ class GoldenArchitecture(object):
                         self.groups = []
                         self.group_drain_index = 0
                         self.group_layer_index = 0
+                        self.group_pending = None
+                        self.group_input_closed = False
                         self.group_frame_done = True
 
             if fifo_pop:
@@ -521,6 +593,15 @@ class GoldenArchitecture(object):
             raise AssertionError(
                 "{} completed with {} buffered outputs".format(
                     self.architecture, len(self.fifo)
+                )
+            )
+        expected_frames = SAMPLE_COUNT // BIT_LENGTH
+        if self.validated_transform_frames != expected_frames:
+            raise AssertionError(
+                "{} validated {} of {} preprocessing frames".format(
+                    self.architecture,
+                    self.validated_transform_frames,
+                    expected_frames,
                 )
             )
         return self.events
@@ -599,7 +680,7 @@ def frame_update_signatures(events):
 
 
 def validate_equivalent_updates(events_by_architecture):
-    """Check transforms that must preserve every frame's crossbar updates."""
+    """Cross-check equivalent families driven by fixed external random values."""
     equivalent_families = (
         (
             "baseline", "zero_delete", "group_mask",
@@ -608,14 +689,6 @@ def validate_equivalent_updates(events_by_architecture):
         (
             "sort", "sort_zero_delete", "sort_group_mask",
             "sort_zero_delete_group_mask",
-        ),
-        (
-            "lfsr", "lfsr_zero_delete", "lfsr_group_mask",
-            "lfsr_zero_delete_group_mask",
-        ),
-        (
-            "lfsr_sort", "lfsr_sort_zero_delete", "lfsr_sort_group_mask",
-            "lfsr_sort_zero_delete_group_mask",
         ),
     )
     for family in equivalent_families:

@@ -113,9 +113,12 @@ def parse_simulation_metrics(run_dir: Path) -> Dict[str, Any]:
                 "samples",
                 "sets",
                 "cycles",
+                "startup_cycles",
                 "end_to_end_latency_cycles",
                 "input_stall_cycles",
                 "buffer_full_cycles",
+                "kept_pairs",
+                "deleted_pairs",
                 "output_pairs",
                 "x_output_pulses",
                 "d_output_pulses",
@@ -135,10 +138,20 @@ def parse_simulation_metrics(run_dir: Path) -> Dict[str, Any]:
         metrics["simulation_status"] = "MISSING"
 
     sets = metrics.get("sets")
+    total_cycles = metrics.get("cycles")
+    startup_cycles = metrics.get("startup_cycles")
+    if sets and total_cycles is not None:
+        # Throughput excludes the two deterministic startup cycles.
+        metrics["cycles_per_set"] = (
+            (total_cycles - (startup_cycles if startup_cycles is not None else 2))
+            / sets
+        )
+        metrics["output_pairs_per_set"] = (metrics.get("output_pairs") or 0) / sets
+        metrics["kept_pairs_per_set"] = (metrics.get("kept_pairs") or 0) / sets
+        metrics["deleted_pairs_per_set"] = (metrics.get("deleted_pairs") or 0) / sets
     latency_cycles = metrics.get("end_to_end_latency_cycles")
     if sets and latency_cycles is not None:
         metrics["average_set_latency_cycles"] = latency_cycles / sets
-        metrics["output_pairs_per_set"] = (metrics.get("output_pairs") or 0) / sets
 
     return metrics
 
@@ -390,19 +403,45 @@ def build_row(
         if recorded_status.get("synthesis_status") in {"FAIL", "SKIPPED"}:
             row["synthesis_status"] = recorded_status["synthesis_status"]
 
-    average_cycles = row.get("average_set_latency_cycles")
-    if average_cycles is not None and simulation_clock_period_ns is not None:
-        row["average_set_latency_sim_ns"] = average_cycles * simulation_clock_period_ns
+    setup_clean = (
+        row.get("setup_violating_paths") == 0 and
+        (row.get("worst_setup_slack_ns") is not None) and
+        row["worst_setup_slack_ns"] >= 0
+    )
+    drc_clean = all(
+        (row.get(field) or 0) == 0
+        for field in ("nets_with_violations", "max_transition_violations",
+                      "max_capacitance_violations")
+    )
+    row["setup_status"] = "SETUP PASS" if setup_clean else "SETUP FAIL"
+    row["drc_status"] = "DRC PASS" if drc_clean else "DRC FAIL"
+    row["hold_status"] = "HOLD ADVISORY"
+    row["timing_clean"] = setup_clean and drc_clean
+    if row.get("synthesis_status") not in {"FAIL", "MISSING", "SKIPPED"}:
+        row["synthesis_status"] = "{} | {} | {}".format(
+            row["setup_status"], row["drc_status"], row["hold_status"]
+        )
 
-    min_period = row.get("estimated_min_period_ns")
-    if average_cycles is not None and min_period is not None:
-        row["average_set_latency_at_fmax_ns"] = average_cycles * min_period
+    cycles_per_set = row.get("cycles_per_set")
+    if cycles_per_set is not None and simulation_clock_period_ns is not None:
+        row["cycles_per_set_at_sim_ns"] = cycles_per_set * simulation_clock_period_ns
+
+    raw_fmax = row.get("estimated_max_frequency_mhz")
+    row["setup_limited_max_frequency_mhz"] = raw_fmax
+    if not row["timing_clean"]:
+        row["estimated_max_frequency_mhz"] = None
 
     power_mw = row.get("total_power_mw")
-    sim_latency_ns = row.get("average_set_latency_sim_ns")
-    if power_mw is not None and sim_latency_ns is not None:
-        # mW * ns equals pJ. This uses the same time base as the SAIF activity.
-        row["estimated_energy_per_set_pj"] = power_mw * sim_latency_ns
+    latency_ns = row.get("cycles_per_set_at_sim_ns")
+    clock_aligned = (
+        simulation_clock_period_ns is not None and
+        row.get("target_period_ns") is not None and
+        abs(simulation_clock_period_ns - row["target_period_ns"]) < 1e-9
+    )
+    row["comparison_qualified"] = bool(row["timing_clean"] and clock_aligned)
+    if power_mw is not None and latency_ns is not None and row["comparison_qualified"]:
+        # mW * ns equals pJ; qualified only at the shared 3 ns operating point.
+        row["estimated_energy_per_set_pj"] = power_mw * latency_ns
 
     return row
 
@@ -412,9 +451,15 @@ CSV_FIELDS = (
     "testbench",
     "simulation_status",
     "synthesis_status",
+    "setup_status",
+    "drc_status",
+    "hold_status",
+    "comparison_qualified",
     "samples",
     "sets",
     "cycles",
+    "startup_cycles",
+    "cycles_per_set",
     "end_to_end_latency_cycles",
     "average_set_latency_cycles",
     "simulation_clock_period_ns",
@@ -423,6 +468,7 @@ CSV_FIELDS = (
     "target_period_ns",
     "worst_setup_slack_ns",
     "estimated_min_period_ns",
+    "setup_limited_max_frequency_mhz",
     "estimated_max_frequency_mhz",
     "critical_path_ns",
     "limiting_path_group",
@@ -543,12 +589,12 @@ def write_markdown(path: Path, rows: List[Dict[str, Any]]) -> None:
         "",
         f"Generated: `{generated}`",
         "",
-        "The maximum frequency is estimated from the limiting constrained path as "
-        "`1000 / (target period - setup slack)` MHz. Energy per set uses the reported "
-        "SAIF-based total power and functional-simulation time base.",
-        "A synthesis status of `VIOLATIONS` means Design Compiler completed and all "
-        "reports exist, but setup, transition, or capacitance checks are not clean. "
-        "Pre-layout hold results remain visible as advisories for the later CTS/routing flow.",
+        "Cycles/set = (Total cycles - 2 startup cycles) / Number of sets. "
+        "The 3 ns functional clock matches the synthesis constraint.",
+        "Fmax and energy are reported only when setup and DRC both pass. "
+        "The raw setup-limited frequency remains available in the CSV for diagnosis.",
+        "Synthesis status explicitly separates SETUP PASS/FAIL, DRC PASS/FAIL, "
+        "and HOLD ADVISORY; pre-layout hold remains advisory until CTS/routing.",
         "",
         "## Overview",
         "",

@@ -9,7 +9,7 @@ import sys
 
 
 DIMENSION = 8
-BIT_LENGTH = 32
+BIT_LENGTH = 8
 VALUE_WIDTH = 16
 OUTPUT_BUFFER_DEPTH = 10
 SAMPLE_COUNT = 2048
@@ -118,18 +118,21 @@ def xorshift32(value):
 
 
 def generate_random_pairs():
-    state = RANDOM_SEED
+    """Match the shared RTL LFSR sequence for fair external/LFSR comparison."""
+    lfsr_value = LFSR_SEED
+    d_delay_1 = LFSR_SEED
+    d_delay_2 = LFSR_SEED
     pairs = []
     for _sample in range(SAMPLE_COUNT):
-        x_values = []
-        d_values = []
-        for _lane in range(DIMENSION):
-            state = xorshift32(state)
-            x_values.append(state & VALUE_MASK)
-        for _lane in range(DIMENSION):
-            state = xorshift32(state)
-            d_values.append(state & VALUE_MASK)
-        pairs.append((tuple(x_values), tuple(d_values)))
+        pairs.append((
+            (lfsr_value,) * DIMENSION,
+            (d_delay_2,) * DIMENSION,
+        ))
+        old_lfsr = lfsr_value
+        old_d_delay_1 = d_delay_1
+        lfsr_value = next_lfsr(old_lfsr)
+        d_delay_1 = old_lfsr
+        d_delay_2 = old_d_delay_1
     return pairs
 
 
@@ -434,11 +437,12 @@ class GoldenArchitecture(object):
                 ))
                 self.completed_frames += 1
 
-            old_lfsr = self.lfsr_value
-            old_d_delay_1 = self.d_lfsr_delay_1
-            self.lfsr_value = next_lfsr(old_lfsr)
-            self.d_lfsr_delay_1 = old_lfsr
-            self.d_lfsr_delay_2 = old_d_delay_1
+            if source_fire:
+                old_lfsr = self.lfsr_value
+                old_d_delay_1 = self.d_lfsr_delay_1
+                self.lfsr_value = next_lfsr(old_lfsr)
+                self.d_lfsr_delay_1 = old_lfsr
+                self.d_lfsr_delay_2 = old_d_delay_1
 
             if self.enable_sort:
                 if sort_input_fire:

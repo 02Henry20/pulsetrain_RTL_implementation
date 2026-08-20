@@ -4,8 +4,9 @@ module LFSR #(
     parameter [WIDTH-1:0] SEED = 16'hACE1, // Initial nonzero LFSR state.
     parameter [WIDTH-1:0] TAPS = {WIDTH{1'b0}} // Zero selects built-in maximum-length taps.
 ) (
-    input  wire             CLK, // Advances the LFSR every clock.
+    input  wire             CLK, // System clock.
     input  wire             RST, // Active-low asynchronous reset.
+    input  wire             ENABLE, // Advance only when the source accepts a sample.
 
     output reg  [WIDTH-1:0] VALUE // Current normalized pseudo-random value in [0,1].
 );
@@ -70,7 +71,7 @@ module LFSR #(
             always @(posedge CLK or negedge RST) begin
                 if (!RST)
                     VALUE <= RESET_VALUE;
-                else
+                else if (ENABLE)
                     VALUE <= ~VALUE;
             end
         end else begin : GEN_WIDE_LFSR
@@ -83,7 +84,7 @@ module LFSR #(
             always @(posedge CLK or negedge RST) begin
                 if (!RST)
                     VALUE <= RESET_VALUE;
-                else
+                else if (ENABLE)
                     VALUE <= {VALUE[WIDTH-2:0], feedback};
             end
         end

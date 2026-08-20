@@ -112,6 +112,14 @@ for architecture in "${ARCHITECTURES[@]}"; do
             "${SIM_DIR}/filelists/${architecture}.f" >&2
         exit 2
     fi
+    expected_top="../../RTL/architectures/${architecture}/TOP.v"
+    if ! grep -Fxq "${expected_top}" "${SIM_DIR}/filelists/${architecture}.f"; then
+        printf 'ERROR: Simulation file list selects the wrong TOP wrapper: %s\n' \
+            "${SIM_DIR}/filelists/${architecture}.f" >&2
+        printf 'Expected entry: %s\n' "${expected_top}" >&2
+        exit 2
+    fi
+
     if [[ ! -f "${TB_DIR}/${testbench}.v" ]]; then
         printf 'ERROR: Testbench is missing: %s\n' \
             "${TB_DIR}/${testbench}.v" >&2
@@ -307,6 +315,29 @@ synthesis_violation_summary() {
 }
 
 total=${#ARCHITECTURES[@]}
+synthesis_qor_status() {
+    local architecture="$1"
+    local testbench="$2"
+    local qor_report="${SYNTH_DIR}/runs/${architecture}/${testbench}/reports/TOP.mapped.qor.rpt"
+
+    awk '
+        /Critical Path Slack:/ && $NF != "uninit" {
+            if (($NF + 0) < 0) setup_fail = 1
+        }
+        /No\. of Violating Paths:/ {
+            if (($NF + 0) > 0) setup_fail = 1
+        }
+        /Nets With Violations:|Max Trans Violations:|Max Cap Violations:/ {
+            if (($NF + 0) > 0) drc_fail = 1
+        }
+        END {
+            printf "SETUP %s | DRC %s | HOLD ADVISORY",
+                setup_fail ? "FAIL" : "PASS",
+                drc_fail ? "FAIL" : "PASS"
+        }
+    ' "${qor_report}"
+}
+
 synthesis_completed=0
 report_clean=0
 report_violations=0
@@ -358,14 +389,14 @@ for architecture in "${ARCHITECTURES[@]}"; do
        synthesis_artifacts_valid "${architecture}" "${testbench}"; then
         ((synthesis_completed += 1))
         if synthesis_reports_clean "${architecture}" "${testbench}"; then
-            synthesis_status="PASS"
+            synthesis_status="$(synthesis_qor_status "${architecture}" "${testbench}")"
             ((report_clean += 1))
             printf '[PASS ] [%02d/%02d] %-38s synthesis and QoR (%ds)\n' \
                 "${index}" "${total}" "${architecture}" "$((SECONDS - start_seconds))"
         else
             report_check_status=$?
             if ((report_check_status == 1)); then
-                synthesis_status="VIOLATIONS"
+                synthesis_status="$(synthesis_qor_status "${architecture}" "${testbench}")"
                 ((report_violations += 1))
                 violation_summary="$(synthesis_violation_summary "${architecture}" "${testbench}")"
                 printf '[WARN ] [%02d/%02d] %-38s synthesis complete; %s (%ds)\n' \

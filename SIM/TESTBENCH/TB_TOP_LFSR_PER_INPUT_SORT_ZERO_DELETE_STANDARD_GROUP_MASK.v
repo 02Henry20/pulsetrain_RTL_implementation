@@ -1,0 +1,13 @@
+`timescale 1ns/100ps
+`define PER_INPUT_LFSR_ARCHITECTURE
+`define GROUP_MASK_ARCHITECTURE
+`define ARCHITECTURE_NAME "lfsr_per_input_sort_zero_delete_standard_group_mask"
+
+module TB_TOP_LFSR_PER_INPUT_SORT_ZERO_DELETE_STANDARD_GROUP_MASK;
+`include "TB_ARCHITECTURE_BODY.vh"
+endmodule
+`undef PER_INPUT_LFSR_ARCHITECTURE
+
+`undef ARCHITECTURE_NAME
+`undef GROUP_MASK_ARCHITECTURE
+

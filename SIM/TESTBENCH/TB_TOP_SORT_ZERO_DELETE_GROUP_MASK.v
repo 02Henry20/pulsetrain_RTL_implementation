@@ -1,4 +1,5 @@
 `timescale 1ns/100ps
+`define GROUP_MASK_ARCHITECTURE
 `define ARCHITECTURE_NAME "sort_zero_delete_group_mask"
 
 module TB_TOP_SORT_ZERO_DELETE_GROUP_MASK;
@@ -6,3 +7,4 @@ module TB_TOP_SORT_ZERO_DELETE_GROUP_MASK;
 endmodule
 
 `undef ARCHITECTURE_NAME
+`undef GROUP_MASK_ARCHITECTURE
