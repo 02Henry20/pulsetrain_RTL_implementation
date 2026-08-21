@@ -23,3 +23,12 @@ fsdb2vcdLog/
 clog*
 crte_*.txt
 Synopsys_stack_trace_*.txt
+/.agents
+/.ai-tooling
+/.codex
+/.serena
+AGENTS.md
+/.ignore
+/.gitattributes
+/graphify-out
+/.agents

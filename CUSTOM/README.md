@@ -1,56 +1,105 @@
 # Paper Experiment Flow
 
-The complete supported workflow is:
+Run the supported experiment from the repository root:
 
 ```bash
 bash CUSTOM/run_all.sh
 ```
 
-The script validates one recorded update trace, replays it through every enabled RTL architecture for every configured device pulse time, synthesizes each architecture once without SAIF, and writes the paper tables under `CUSTOM/results/`.
+The flow validates one recorded AIHWKIT pulse trace, compiles each enabled replay testbench once, reuses that executable for every configured device pulse time, synthesizes each architecture once without SAIF, and writes the paper tables under `CUSTOM/results/`.
 
-## 1. Input trace
+## Methodology
 
-Put the trace CSV in `CUSTOM/input/` and set `TRACE_CSV` in `CUSTOM/experiment.conf`. One row is one complete weight update. For the default 8 x 8 crossbar the header is exactly:
+System-latency simulations replay realized binary stochastic pulse trains recorded from AIHWKIT. The stochastic pulse-generation hardware is bypassed during trace replay because it sustains one candidate pulse position per digital cycle and is not the throughput bottleneck. Every architecture therefore receives exactly the same stochastic realization.
 
-```text
-update_id,bl,x0,x1,x2,x3,x4,x5,x6,x7,d0,d1,d2,d3,d4,d5,d6,d7
-```
+The complete LFSR and pulse-generation circuitry remains in the synthesized architecture and is included in area and timing characterization. Replay changes only the source selected ahead of the shared SORT / ZERO DELETE / GROUP MASK / OUTPUT BUFFER pipeline.
 
-`update_id` and `bl` are decimal integers. Every X/D value is a normalized unsigned magnitude in `[0,1]`. The converter rejects duplicate IDs, missing or extra lanes, malformed values, `BL=0`, and `BL>MAX_BL`; it never pads or truncates data. `CUSTOM/input/example_trace.csv` is a small variable-BL smoke trace.
+Keep the two timing configurations separate:
 
-## 2. Select architectures
+- System latency: `DIGITAL_CLOCK_NS=10`, so `Tclk = 10 ns = 100 MHz`.
+- Synthesis characterization: `SYNTH_TARGET_PERIOD_NS=3` by default.
 
-Edit `CUSTOM/architectures.txt`. Each uncommented line is enabled; a line beginning with `#` is disabled. Plain architecture names use a separate, differently seeded LFSR for every X lane and every D lane. The `lfsr*` names use one shared LFSR: X receives the current random word and D receives the same sequence delayed by two accepted candidate positions.
+The 3 ns synthesis target does not change the 100 MHz latency experiment.
 
-## 3. Configure the experiment
+## Raw binary trace format
 
-Edit `CUSTOM/experiment.conf` to set:
-
-- trace filename and crossbar dimension;
-- compile-time `MAX_BL` and stochastic word width;
-- fixed digital clock period (default 10 ns / 100 MHz);
-- pulse sweep in integer nanoseconds (default 1, 10, 100, 1,000, 10,000, 100,000 ns);
-- output FIFO depth, baseline architecture, deterministic LFSR seed, and synthesis target period.
-
-Runtime `bl` comes from each trace row. `MAX_BL` only sizes RTL storage. LFSRs reset once at simulation start and advance only on accepted candidate positions; a fresh process for every pulse-time point reproduces the same stochastic realization.
-
-## 4. Latency and device timing
-
-The simulation-only device accepts a FIFO output pair only while idle, remains busy for exactly `T_PULSE` simulation time, and then completes that physical pulse. FIFO removal is physical-pulse start, not completion.
-
-For each update:
+Set `TRACE_CSV` in `CUSTOM/experiment.conf` to a CSV with one row per realized stochastic pulse position. The required columns are:
 
 ```text
-start = first accepted candidate position
-end = max(digital frame/FIFO-drain completion, final physical pulse completion)
-latency = end - start
+update_id,bl,pulse_index,x0,...,xN,d0,...,dN
 ```
 
-Updates do not overlap. Group-mask architectures group runtime frames up to BL 8 and explicitly bypass longer frames; bypass counts are reported.
+The X and D lane columns must start at zero and be contiguous. Optional metadata columns are `x_size`, `d_size`, and `tile_index`; if present, they apply to every row of that update.
 
-## 5. Results
+For a four-lane trace:
 
-Generated files are:
+```csv
+update_id,bl,pulse_index,x0,x1,x2,x3,d0,d1,d2,d3
+0,3,0,1,0,0,1,0,1,0,0
+0,3,1,0,0,0,0,1,1,0,0
+0,3,2,1,1,0,0,0,0,1,0
+1,2,0,0,1,0,0,1,0,0,1
+1,2,1,1,0,0,0,0,0,1,0
+```
+
+Rules enforced by `CUSTOM/prepare_trace.py`:
+
+- `bl` is runtime BL and must be in `1..MAX_BL`.
+- Each update has exactly BL rows with `pulse_index` equal to `0..BL-1`.
+- Every X/D lane value is the integer `0` or `1`.
+- Update rows are contiguous and metadata is constant within an update.
+- Active X/D dimensions may not exceed `CROSSBAR_DIMENSION`.
+- Unexpected columns, duplicate or missing indices, malformed values, truncation, and active lanes beyond declared sizes fail loudly.
+
+Conversion is lossless: lane vectors are packed into hex for Verilog replay without quantization, probability inference, stochastic regeneration, reordering, or position deletion.
+
+Non-square AIHWKIT tiles are supported through metadata. If `x_size` or `d_size` is smaller than the fixed RTL dimension, inactive lanes are zero-padded. Active lanes are never truncated. Without metadata, the CSV lane counts define the physical X and D sizes. See `CUSTOM/input/example_trace.csv` for a variable-BL example.
+
+## Replay handshake and latency
+
+`TB_REPLAY.sv` elaborates `TOP` with `RAW_REPLAY_MODE=1` and drives `X_RAW_PULSES_IN` and `D_RAW_PULSES_IN`. It advances `pulse_index` only on `INPUT_VALID && READY_IN`; raw X, raw D, `INPUT_VALID`, and `INPUT_BL` remain stable under backpressure.
+
+For each serial update:
+
+```text
+start_time = acceptance of the first raw candidate position
+digital_completion = preprocessing and output-buffer completion
+physical_completion = exact end of the last device pulse
+latency = max(digital_completion, physical_completion) - start_time
+```
+
+The simulation-only device accepts an output pair only while idle. Its availability is scheduled deterministically around exact 10 ns clock boundaries while its physical completion timestamp remains `acceptance_time + T_PULSE`.
+
+The testbench checks accepted/preprocessed position counts, stalled-input stability, blocked-output stability, X/Z values, baseline stream identity, sort behavior, zero-delete legality, and downstream coincidence-matrix preservation.
+
+## Synthesis mode
+
+All architecture wrappers default to `RAW_REPLAY_MODE=0`. `SYN_topo/run_synthesis` also forces this value to zero and propagates `SYNTH_TARGET_PERIOD_NS` into every active MCMM `create_clock` constraint.
+
+With `RAW_REPLAY_MODE=0`, the elaborated hardware contains the normal LFSR and pulse-comparator source:
+
+```text
+normalized X/D values -> LFSR + pulse generation -> preprocessing -> output buffer
+```
+
+A precompile hierarchy report is generated for every synthesis run, and the driver fails if it cannot find both LFSR and pulse-generator hierarchy. Synthesis is performed once per architecture with no SAIF or energy flow.
+
+## Architectures
+
+`CUSTOM/architectures.txt` is the source of truth. The supported set has two genuinely different RNG families, each combined with the supported preprocessing variants:
+
+- Plain names (`baseline`, `sort`, `zero_delete`, and group-mask combinations) use independent per-input LFSRs.
+- `lfsr*` names use one shared LFSR, with D receiving the sequence two accepted positions behind X.
+
+Legacy `lfsr_per_input*` aliases are not supported because they duplicated the canonical plain-name family. RNG-only architecture differences are intentionally invisible in raw-replay latency but remain visible in synthesis area and timing.
+
+Every enabled architecture must have both `RTL/architectures/<architecture>/TOP.v` and `SIM/FUNCTION/filelists/<architecture>.f`.
+
+## Configuration and results
+
+`CUSTOM/experiment.conf` selects the trace, RTL dimension and `MAX_BL`, stochastic word width, output-buffer depth, 10 ns latency clock, device pulse sweep, baseline architecture, LFSR seed, and synthesis target period.
+
+Generated outputs are:
 
 ```text
 CUSTOM/results/
@@ -62,6 +111,4 @@ CUSTOM/results/
   per_update/<architecture>_<pulse>ns.csv
 ```
 
-The raw per-update CSVs retain IDs, input/output pulse positions, deleted positions, exact nanosecond latency, digital and physical completion, stall/full counters, FIFO occupancy, group-mask bypass, and validation errors.
-
-Synthesis is performed once per architecture using the existing Samsung 28 nm libraries, MCMM scenarios, and constraints. Reported area is post-synthesis standard-cell area, not die area. Estimated fmax is `1000 / (target_period - worst_setup_slack)` and is shown only when setup and transition/capacitance DRC qualify. Hold is a pre-layout advisory. Power and energy are intentionally not part of this experiment.
+Latency summaries include update count, input BL, output pulse positions, reduction, mean/median/std/P95 latency, savings, speedup, and validation status. Synthesis summaries include total/combinational/sequential cell area, normalized area, cell count, target period, setup slack and violations, estimated minimum period and Fmax, setup/DRC status, and advisory hold data. Power and energy are intentionally excluded.

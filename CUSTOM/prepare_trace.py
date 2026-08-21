@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Validate the paper CSV trace and convert it to a compact replay format."""
+"""Validate realized binary AIHWKIT pulse trains and pack them losslessly."""
 
 from __future__ import annotations
 
 import argparse
 import csv
 import math
+import re
 import statistics
-from decimal import Decimal, InvalidOperation
+from collections import OrderedDict
 from pathlib import Path
+
+OPTIONAL_METADATA = {"x_size", "d_size", "tile_index"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,29 +21,52 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("stats_csv", type=Path)
     parser.add_argument("--dimension", type=int, required=True)
     parser.add_argument("--max-bl", type=int, required=True)
-    parser.add_argument("--value-width", type=int, required=True)
     return parser.parse_args()
 
 
-def parse_probability(text: str, row_number: int, column: str) -> Decimal:
+def decimal_integer(text: str, row_number: int, column: str) -> int:
     try:
-        value = Decimal(text.strip())
-    except (InvalidOperation, AttributeError) as exc:
-        raise ValueError(f"row {row_number}: {column} is not a number: {text!r}") from exc
-    if not value.is_finite() or value < 0 or value > 1:
-        raise ValueError(f"row {row_number}: {column}={text!r} is outside [0,1]")
-    return value
+        return int(text.strip(), 10)
+    except (AttributeError, ValueError) as exc:
+        raise ValueError(
+            f"row {row_number}: {column} must be a decimal integer"
+        ) from exc
 
 
-def quantize(value: Decimal, width: int) -> int:
-    maximum = (1 << width) - 1
-    return int((value * maximum).to_integral_value(rounding="ROUND_HALF_UP"))
+def bit_value(text: str, row_number: int, column: str) -> int:
+    try:
+        value = text.strip()
+    except AttributeError as exc:
+        raise ValueError(
+            f"row {row_number}: {column} must be 0 or 1, got {text!r}"
+        ) from exc
+    if value not in {"0", "1"}:
+        raise ValueError(
+            f"row {row_number}: {column} must be 0 or 1, got {text!r}"
+        )
+    return int(value)
 
 
-def pack(values: list[int], width: int) -> int:
+def indexed_columns(header: list[str], prefix: str) -> list[str]:
+    matches: list[tuple[int, str]] = []
+    pattern = re.compile(rf"{prefix}([0-9]+)")
+    for column in header:
+        match = pattern.fullmatch(column)
+        if match:
+            matches.append((int(match.group(1)), column))
+    matches.sort()
+    indices = [index for index, _ in matches]
+    if not matches or indices != list(range(len(matches))):
+        raise ValueError(
+            f"{prefix} lane columns must be contiguous from {prefix}0; got {indices}"
+        )
+    return [column for _, column in matches]
+
+
+def packed_bits(bits: list[int]) -> int:
     packed = 0
-    for lane, value in enumerate(values):
-        packed |= value << (lane * width)
+    for lane, value in enumerate(bits):
+        packed |= value << lane
     return packed
 
 
@@ -50,96 +76,178 @@ def main() -> int:
         raise SystemExit("ERROR: --dimension must be positive")
     if args.max_bl <= 0:
         raise SystemExit("ERROR: --max-bl must be positive")
-    if args.value_width <= 0 or args.value_width > 32:
-        raise SystemExit("ERROR: --value-width must be in 1..32")
     if not args.input_csv.is_file():
         raise SystemExit(f"ERROR: trace CSV not found: {args.input_csv}")
 
-    expected = (
-        ["update_id", "bl"]
-        + [f"x{i}" for i in range(args.dimension)]
-        + [f"d{i}" for i in range(args.dimension)]
-    )
-    records: list[tuple[int, int, int, int]] = []
-    seen_ids: set[int] = set()
+    updates: OrderedDict[int, dict[str, object]] = OrderedDict()
+    previous_update_id: int | None = None
+    closed_updates: set[int] = set()
 
     try:
         with args.input_csv.open(newline="", encoding="utf-8-sig") as handle:
-            reader = csv.reader(handle)
-            try:
-                header = [item.strip() for item in next(reader)]
-            except StopIteration as exc:
-                raise ValueError("trace is empty") from exc
-            if header != expected:
+            reader = csv.DictReader(handle)
+            if reader.fieldnames is None:
+                raise ValueError("trace is empty")
+            header = [column.strip() for column in reader.fieldnames]
+            if header[:3] != ["update_id", "bl", "pulse_index"]:
                 raise ValueError(
-                    "header mismatch; expected exactly:\n" + ",".join(expected)
+                    "the first three columns must be update_id,bl,pulse_index"
                 )
+            if len(set(header)) != len(header):
+                raise ValueError("trace header contains duplicate column names")
 
+            x_columns = indexed_columns(header, "x")
+            d_columns = indexed_columns(header, "d")
+            if len(x_columns) > args.dimension or len(d_columns) > args.dimension:
+                raise ValueError(
+                    "active X/D lane columns exceed --dimension; truncation is forbidden"
+                )
+            allowed = {
+                "update_id", "bl", "pulse_index", *OPTIONAL_METADATA,
+                *x_columns, *d_columns,
+            }
+            unexpected = [column for column in header if column not in allowed]
+            if unexpected:
+                raise ValueError(f"unexpected trace columns: {', '.join(unexpected)}")
+
+            reader.fieldnames = header
             for row_number, row in enumerate(reader, start=2):
-                if not row or all(not item.strip() for item in row):
+                if row is None or all(not (value or "").strip() for value in row.values()):
                     continue
-                if len(row) != len(expected):
-                    raise ValueError(
-                        f"row {row_number}: expected {len(expected)} columns, got {len(row)}"
-                    )
-                try:
-                    update_id = int(row[0].strip(), 10)
-                    bl = int(row[1].strip(), 10)
-                except ValueError as exc:
-                    raise ValueError(
-                        f"row {row_number}: update_id and bl must be decimal integers"
-                    ) from exc
-                if update_id in seen_ids:
-                    raise ValueError(f"row {row_number}: duplicate update_id {update_id}")
+                if None in row:
+                    raise ValueError(f"row {row_number}: too many CSV fields")
+
+                update_id = decimal_integer(row["update_id"], row_number, "update_id")
+                bl = decimal_integer(row["bl"], row_number, "bl")
+                pulse_index = decimal_integer(row["pulse_index"], row_number, "pulse_index")
                 if bl <= 0 or bl > args.max_bl:
                     raise ValueError(
                         f"row {row_number}: BL {bl} is outside 1..{args.max_bl}"
                     )
-                seen_ids.add(update_id)
 
-                x_decimal = [
-                    parse_probability(row[2 + i], row_number, f"x{i}")
-                    for i in range(args.dimension)
-                ]
-                d_decimal = [
-                    parse_probability(
-                        row[2 + args.dimension + i], row_number, f"d{i}"
+                x_size = (
+                    decimal_integer(row["x_size"], row_number, "x_size")
+                    if "x_size" in header else len(x_columns)
+                )
+                d_size = (
+                    decimal_integer(row["d_size"], row_number, "d_size")
+                    if "d_size" in header else len(d_columns)
+                )
+                if "tile_index" in header:
+                    tile_index = decimal_integer(
+                        row["tile_index"], row_number, "tile_index"
                     )
-                    for i in range(args.dimension)
-                ]
-                x_words = [quantize(value, args.value_width) for value in x_decimal]
-                d_words = [quantize(value, args.value_width) for value in d_decimal]
-                records.append(
-                    (update_id, bl, pack(x_words, args.value_width), pack(d_words, args.value_width))
+                    if tile_index < 0:
+                        raise ValueError(
+                            f"row {row_number}: tile_index must be non-negative"
+                        )
+                else:
+                    tile_index = -1
+                if not 0 < x_size <= args.dimension:
+                    raise ValueError(
+                        f"row {row_number}: x_size {x_size} is outside 1..{args.dimension}"
+                    )
+                if not 0 < d_size <= args.dimension:
+                    raise ValueError(
+                        f"row {row_number}: d_size {d_size} is outside 1..{args.dimension}"
+                    )
+                if x_size > len(x_columns) or d_size > len(d_columns):
+                    raise ValueError(
+                        f"row {row_number}: declared active size exceeds available lanes"
+                    )
+                x_bits = [bit_value(row[column], row_number, column) for column in x_columns]
+                d_bits = [bit_value(row[column], row_number, column) for column in d_columns]
+                if any(x_bits[x_size:]):
+                    raise ValueError(
+                        f"row {row_number}: X lane beyond x_size={x_size} is active"
+                    )
+                if any(d_bits[d_size:]):
+                    raise ValueError(
+                        f"row {row_number}: D lane beyond d_size={d_size} is active"
+                    )
+                x_bits.extend([0] * (args.dimension - len(x_bits)))
+                d_bits.extend([0] * (args.dimension - len(d_bits)))
+
+                if update_id != previous_update_id:
+                    if update_id in closed_updates:
+                        raise ValueError(
+                            f"row {row_number}: update_id {update_id} is not contiguous"
+                        )
+                    if previous_update_id is not None:
+                        closed_updates.add(previous_update_id)
+                    previous_update_id = update_id
+                    updates[update_id] = {
+                        "bl": bl, "x_size": x_size, "d_size": d_size,
+                        "tile_index": tile_index, "rows": [],
+                    }
+
+                update = updates[update_id]
+                if (
+                    update["bl"] != bl
+                    or update["x_size"] != x_size
+                    or update["d_size"] != d_size
+                    or update["tile_index"] != tile_index
+                ):
+                    raise ValueError(
+                        f"row {row_number}: BL or tile metadata changed within update {update_id}"
+                    )
+                rows = update["rows"]
+                assert isinstance(rows, list)
+                if pulse_index != len(rows):
+                    raise ValueError(
+                        f"row {row_number}: update {update_id} pulse_index is "
+                        f"{pulse_index}, expected {len(rows)}"
+                    )
+                rows.append((packed_bits(x_bits), packed_bits(d_bits)))
+
+        if not updates:
+            raise ValueError("trace contains no pulse positions")
+        for update_id, update in updates.items():
+            rows = update["rows"]
+            assert isinstance(rows, list)
+            bl = int(update["bl"])
+            if len(rows) != bl:
+                raise ValueError(
+                    f"update {update_id}: found {len(rows)} positions, expected BL={bl}"
                 )
     except (OSError, ValueError) as exc:
         raise SystemExit(f"ERROR: {exc}") from exc
 
-    if not records:
-        raise SystemExit("ERROR: trace contains no update records")
-
     args.output_trace.parent.mkdir(parents=True, exist_ok=True)
-    vector_hex_width = math.ceil(args.dimension * args.value_width / 4)
+    vector_hex_width = math.ceil(args.dimension / 4)
+    total_positions = sum(int(update["bl"]) for update in updates.values())
     with args.output_trace.open("w", encoding="ascii", newline="\n") as handle:
         handle.write(
-            f"{len(records)} {args.dimension} {args.value_width} {args.max_bl}\n"
+            f"{len(updates)} {total_positions} {args.dimension} {args.max_bl}\n"
         )
-        for update_id, bl, x_packed, d_packed in records:
-            handle.write(
-                f"{update_id} {bl} {x_packed:0{vector_hex_width}x} "
-                f"{d_packed:0{vector_hex_width}x}\n"
-            )
+        for update_id, update in updates.items():
+            rows = update["rows"]
+            assert isinstance(rows, list)
+            for pulse_index, (x_packed, d_packed) in enumerate(rows):
+                handle.write(
+                    f"{update_id} {update['bl']} {pulse_index} "
+                    f"{update['x_size']} {update['d_size']} {update['tile_index']} "
+                    f"{x_packed:0{vector_hex_width}x} "
+                    f"{d_packed:0{vector_hex_width}x}\n"
+                )
 
-    bl_values = [record[1] for record in records]
+    bl_values = [int(update["bl"]) for update in updates.values()]
+    x_sizes = [int(update["x_size"]) for update in updates.values()]
+    d_sizes = [int(update["d_size"]) for update in updates.values()]
     stats = {
         "trace_filename": args.input_csv.name,
-        "updates": len(records),
+        "updates": len(updates),
+        "pulse_positions": total_positions,
         "dimension": args.dimension,
         "max_bl": args.max_bl,
         "min_bl": min(bl_values),
         "mean_bl": statistics.fmean(bl_values),
         "median_bl": statistics.median(bl_values),
         "max_observed_bl": max(bl_values),
+        "min_x_size": min(x_sizes),
+        "max_x_size": max(x_sizes),
+        "min_d_size": min(d_sizes),
+        "max_d_size": max(d_sizes),
     }
     args.stats_csv.parent.mkdir(parents=True, exist_ok=True)
     with args.stats_csv.open("w", encoding="utf-8", newline="") as handle:
@@ -149,9 +257,9 @@ def main() -> int:
 
     print(
         "Trace: "
-        f"{len(records)} updates, dimension={args.dimension}, "
-        f"BL min/mean/median/max={min(bl_values)}/"
-        f"{statistics.fmean(bl_values):.3f}/"
+        f"{len(updates)} updates, {total_positions} realized pulse positions, "
+        f"dimension={args.dimension}, BL min/mean/median/max="
+        f"{min(bl_values)}/{statistics.fmean(bl_values):.3f}/"
         f"{statistics.median(bl_values):.3f}/{max(bl_values)}"
     )
     return 0

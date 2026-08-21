@@ -262,7 +262,7 @@ def main() -> int:
         f"- Recorded updates: {trace_stats['updates']}",
         f"- Crossbar dimension: {options.dimension}",
         f"- MAX_BL: {options.max_bl}",
-        f"- Digital clock: {fmt(options.clock_ns)} ns ({1000.0 / options.clock_ns:.3f} MHz)",
+        f"- Digital clock: {options.clock_ns:g} ns ({1000.0 / options.clock_ns:g} MHz)",
         f"- Pulse-time sweep: {', '.join(str(v) + ' ns' for v in options.pulse_times)}",
         f"- Baseline architecture: `{options.baseline}`",
         f"- LFSR seed: `{options.seed}`", "",

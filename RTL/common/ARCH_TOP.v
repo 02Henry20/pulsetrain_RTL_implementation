@@ -5,6 +5,7 @@ module ARCH_TOP #(
     parameter integer BL_WIDTH = (MAX_BL <= 1) ? 1 : $clog2(MAX_BL + 1),
     parameter integer STOCHASTIC_VALUE_WIDTH = 16,
     parameter integer OUTPUT_BUFFER_DEPTH = 10,
+    parameter integer RAW_REPLAY_MODE = 0,
     parameter integer USE_SHARED_LFSR = 0,
     parameter integer ENABLE_D_SORT = 0,
     parameter integer ENABLE_ZERO_DELETE = 0,
@@ -17,6 +18,8 @@ module ARCH_TOP #(
     input  wire [BL_WIDTH-1:0] INPUT_BL,
     input  wire [CROSSBAR_DIMENSION*STOCHASTIC_VALUE_WIDTH-1:0] X_INPUT_VALUES,
     input  wire [CROSSBAR_DIMENSION*STOCHASTIC_VALUE_WIDTH-1:0] D_INPUT_VALUES,
+    input  wire [CROSSBAR_DIMENSION-1:0] X_RAW_PULSES_IN,
+    input  wire [CROSSBAR_DIMENSION-1:0] D_RAW_PULSES_IN,
     input  wire OUTPUT_READY,
     output wire [CROSSBAR_DIMENSION-1:0] X_PULSES_OUT,
     output wire [CROSSBAR_DIMENSION-1:0] D_PULSES_OUT,
@@ -67,7 +70,10 @@ module ARCH_TOP #(
     // the same sequence two accepted candidate positions later. The two reset
     // history words are deterministic and deliberately distinct from the seed.
     generate
-        if (USE_SHARED_LFSR) begin : GEN_SHARED_LFSR
+        if (RAW_REPLAY_MODE != 0) begin : GEN_RAW_REPLAY
+            assign x_pulses_generated = X_RAW_PULSES_IN;
+            assign d_pulses_generated = D_RAW_PULSES_IN;
+        end else if (USE_SHARED_LFSR) begin : GEN_SHARED_LFSR
             wire [STOCHASTIC_VALUE_WIDTH-1:0] lfsr_value;
             reg  [STOCHASTIC_VALUE_WIDTH-1:0] d_delay_1;
             reg  [STOCHASTIC_VALUE_WIDTH-1:0] d_delay_2;

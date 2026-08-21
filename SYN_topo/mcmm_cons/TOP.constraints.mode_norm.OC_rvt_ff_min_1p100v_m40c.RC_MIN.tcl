@@ -29,7 +29,15 @@ reset_design
 
 # 50Mhz clock is a 20ns period:
 # So, let's treat 16 ns period to make chip stable (80% margin) 
-create_clock -period 3 -name MAIN_CLOCK [get_ports CLK]
+if {![info exists ::env(SYNTH_TARGET_PERIOD_NS)]} {
+    error "SYNTH_TARGET_PERIOD_NS is required"
+}
+set SYNTH_TARGET_PERIOD_NS $::env(SYNTH_TARGET_PERIOD_NS)
+if {![string is double -strict $SYNTH_TARGET_PERIOD_NS] ||
+    ($SYNTH_TARGET_PERIOD_NS <= 0)} {
+    error "SYNTH_TARGET_PERIOD_NS must be a positive number"
+}
+create_clock -period $SYNTH_TARGET_PERIOD_NS -name MAIN_CLOCK [get_ports CLK]
 
 # External clock source latency is 2ns 
 # and the maximum internal clock network insertion delay or latency is 1 ns:

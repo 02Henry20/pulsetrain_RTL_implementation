@@ -87,6 +87,7 @@ analyze -format verilog ${RTL_SOURCE_FILES}
 set ELABORATION_PARAMETERS [list]
 foreach PARAMETER_NAME {
     CROSSBAR_DIMENSION MAX_BL STOCHASTIC_VALUE_WIDTH OUTPUT_BUFFER_DEPTH
+    RAW_REPLAY_MODE LFSR_SEED
 } {
     if {[info exists ::env($PARAMETER_NAME)]} {
         lappend ELABORATION_PARAMETERS \
@@ -114,6 +115,10 @@ if {[llength $ELABORATION_PARAMETERS] > 0} {
 
 current_design ${DESIGN_NAME}
 link
+
+# Capture the elaborated, pre-optimization hierarchy so the no-replay
+# synthesis configuration can be audited for RNG and pulse-generator logic.
+report_hierarchy -full_name > ${REPORTS_DIR}/precompile_hierarchy.rpt
 
 # OR
 

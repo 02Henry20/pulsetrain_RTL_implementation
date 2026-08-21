@@ -27,7 +27,8 @@ source "${CONFIG_FILE}"
 required_positive=(CROSSBAR_DIMENSION MAX_BL STOCHASTIC_VALUE_WIDTH OUTPUT_BUFFER_DEPTH DIGITAL_CLOCK_NS SYNTH_TARGET_PERIOD_NS)
 for name in "${required_positive[@]}"; do
     value="${!name:-}"
-    if [[ ! "${value}" =~ ^[0-9]+([.][0-9]+)?$ ]] || [[ "${value}" == "0" ]]; then
+    if [[ ! "${value}" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
+        [[ "${value}" =~ ^0+([.]0+)?$ ]]; then
         status FAIL "${name} must be positive in experiment.conf"
         exit 1
     fi
@@ -82,8 +83,7 @@ printf 'stage,architecture,pulse_time_ns,status,log\n' > "${STATUS_FILE}"
 status RUN "validating and converting $(basename "${TRACE_PATH}")"
 if ! "${PYTHON_BIN}" "${SCRIPT_DIR}/prepare_trace.py" \
     "${TRACE_PATH}" "${WORK_DIR}/trace.replay" "${WORK_DIR}/trace_stats.csv" \
-    --dimension "${CROSSBAR_DIMENSION}" --max-bl "${MAX_BL}" \
-    --value-width "${STOCHASTIC_VALUE_WIDTH}"; then
+    --dimension "${CROSSBAR_DIMENSION}" --max-bl "${MAX_BL}"; then
     status FAIL "trace validation failed"
     exit 1
 fi
@@ -91,6 +91,15 @@ status PASS "trace validated"
 
 overall_failed=0
 for arch in "${ARCHITECTURES[@]}"; do
+    expect_sort=0
+    expect_zero_delete=0
+    expect_baseline=0
+    [[ "${arch}" == *sort* ]] && expect_sort=1
+    [[ "${arch}" == *zero_delete* ]] && expect_zero_delete=1
+    if [[ "${arch}" == "baseline" || "${arch}" == "lfsr" ]]; then
+        expect_baseline=1
+    fi
+
     sim_dir="${WORK_DIR}/simulation/${arch}"
     compile_log="${LOG_DIR}/simulation/${arch}_compile.log"
     mkdir -p "${sim_dir}"
@@ -126,7 +135,10 @@ for arch in "${ARCHITECTURES[@]}"; do
                 "+TRACE_FILE=${WORK_DIR}/trace.replay" \
                 "+RESULT_FILE=${result_csv}" \
                 "+T_PULSE_NS=${pulse}" \
-                "+ARCHITECTURE=${arch}" >"${sim_log}" 2>&1 && \
+                "+ARCHITECTURE=${arch}" \
+                "+EXPECT_SORT=${expect_sort}" \
+                "+EXPECT_ZERO_DELETE=${expect_zero_delete}" \
+                "+EXPECT_BASELINE=${expect_baseline}" >"${sim_log}" 2>&1 && \
             grep -q '^RESULT: PASS' "${sim_log}"; then
             status PASS "simulate ${arch} at ${pulse} ns"
             record_status simulation "${arch}" "${pulse}" PASS "${sim_log}"
@@ -144,6 +156,9 @@ for arch in "${ARCHITECTURES[@]}"; do
         env CROSSBAR_DIMENSION="${CROSSBAR_DIMENSION}" MAX_BL="${MAX_BL}" \
             STOCHASTIC_VALUE_WIDTH="${STOCHASTIC_VALUE_WIDTH}" \
             OUTPUT_BUFFER_DEPTH="${OUTPUT_BUFFER_DEPTH}" \
+            LFSR_SEED="${LFSR_SEED}" \
+            RAW_REPLAY_MODE=0 \
+            SYNTH_TARGET_PERIOD_NS="${SYNTH_TARGET_PERIOD_NS}" \
             ./run_synthesis "${arch}"
     ) >"${synth_log}" 2>&1; then
         status PASS "synthesize ${arch}"
