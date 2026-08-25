@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "architectures": [
+    {
+      "id": "baseline",
+      "enabled": true,
+      "input_ids": ["data8_1e_04", "data8_1e_05"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": true,
+      "rng_family": "independent_lfsr",
+      "features": {"sort": false, "zero_delete": false, "group_mask": false}
+    },
+    {
+      "id": "zero_delete",
+      "enabled": true,
+      "input_ids": ["data8_1e_04", "data8_1e_05"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "independent_lfsr",
+      "features": {"sort": false, "zero_delete": true, "group_mask": false}
+    },
+    {
+      "id": "sort",
+      "enabled": true,
+      "input_ids": ["data8_1e_04", "data8_1e_05"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "independent_lfsr",
+      "features": {"sort": true, "zero_delete": false, "group_mask": false}
+    },
+    {
+      "id": "sort_zero_delete",
+      "enabled": true,
+      "input_ids": ["data8_1e_04", "data8_1e_05"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "independent_lfsr",
+      "features": {"sort": true, "zero_delete": true, "group_mask": false}
+    },
+    {
+      "id": "group_mask",
+      "enabled": true,
+      "input_ids": ["data8_1e_04", "data8_1e_05"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "independent_lfsr",
+      "features": {"sort": false, "zero_delete": false, "group_mask": true}
+    },
+    {
+      "id": "zero_delete_group_mask",
+      "enabled": true,
+      "input_ids": ["data8_1e_04", "data8_1e_05"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "independent_lfsr",
+      "features": {"sort": false, "zero_delete": true, "group_mask": true}
+    },
+    {
+      "id": "sort_group_mask",
+      "enabled": true,
+      "input_ids": ["data8_1e_04", "data8_1e_05"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "independent_lfsr",
+      "features": {"sort": true, "zero_delete": false, "group_mask": true}
+    },
+    {
+      "id": "sort_zero_delete_group_mask",
+      "enabled": true,
+      "input_ids": ["data8_1e_04", "data8_1e_05"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "independent_lfsr",
+      "features": {"sort": true, "zero_delete": true, "group_mask": true}
+    },
+    {
+      "id": "lfsr",
+      "enabled": true,
+      "input_ids": ["data8_1e_04_shared", "data8_1e_05_shared"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": true,
+      "rng_family": "shared_lfsr",
+      "features": {"sort": false, "zero_delete": false, "group_mask": false}
+    },
+    {
+      "id": "lfsr_zero_delete",
+      "enabled": true,
+      "input_ids": ["data8_1e_04_shared", "data8_1e_05_shared"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "shared_lfsr",
+      "features": {"sort": false, "zero_delete": true, "group_mask": false}
+    },
+    {
+      "id": "lfsr_sort",
+      "enabled": true,
+      "input_ids": ["data8_1e_04_shared", "data8_1e_05_shared"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "shared_lfsr",
+      "features": {"sort": true, "zero_delete": false, "group_mask": false}
+    },
+    {
+      "id": "lfsr_sort_zero_delete",
+      "enabled": true,
+      "input_ids": ["data8_1e_04_shared", "data8_1e_05_shared"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "shared_lfsr",
+      "features": {"sort": true, "zero_delete": true, "group_mask": false}
+    },
+    {
+      "id": "lfsr_group_mask",
+      "enabled": true,
+      "input_ids": ["data8_1e_04_shared", "data8_1e_05_shared"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "shared_lfsr",
+      "features": {"sort": false, "zero_delete": false, "group_mask": true}
+    },
+    {
+      "id": "lfsr_zero_delete_group_mask",
+      "enabled": true,
+      "input_ids": ["data8_1e_04_shared", "data8_1e_05_shared"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "shared_lfsr",
+      "features": {"sort": false, "zero_delete": true, "group_mask": true}
+    },
+    {
+      "id": "lfsr_sort_group_mask",
+      "enabled": true,
+      "input_ids": ["data8_1e_04_shared", "data8_1e_05_shared"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "shared_lfsr",
+      "features": {"sort": true, "zero_delete": false, "group_mask": true}
+    },
+    {
+      "id": "lfsr_sort_zero_delete_group_mask",
+      "enabled": true,
+      "input_ids": ["data8_1e_04_shared", "data8_1e_05_shared"],
+      "run_testbench": true,
+      "run_synthesis": true,
+      "baseline": false,
+      "rng_family": "shared_lfsr",
+      "features": {"sort": true, "zero_delete": true, "group_mask": true}
+    }
+  ]
+}

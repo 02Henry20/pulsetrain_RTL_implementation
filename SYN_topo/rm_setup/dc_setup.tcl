@@ -13,14 +13,27 @@ puts "RM-Info: Running script [info script]\n"
 if {![info exists ::env(SYNTH_ARCH)]} {
     puts "RM-Error: The SYNTH_ARCH environment variable is not defined."
     puts "RM-Error: Run synthesis through:"
-    puts "RM-Error:   ./run_synthesis <architecture>"
+    puts "RM-Error:   ./run_synthesis <architecture> <input_id>"
     exit 1
 }
 
 set SELECTED_ARCH $::env(SYNTH_ARCH)
 
-if {$SELECTED_ARCH eq ""} {
-    puts "RM-Error: SYNTH_ARCH must not be empty."
+if {![regexp {^[a-z0-9_]+$} $SELECTED_ARCH]} {
+    puts {RM-Error: SYNTH_ARCH must match [a-z0-9_]+.}
+    exit 1
+}
+
+if {![info exists ::env(SYNTH_INPUT_ID)]} {
+    puts "RM-Error: The SYNTH_INPUT_ID environment variable is not defined."
+    puts "RM-Error: Run synthesis through:"
+    puts "RM-Error:   ./run_synthesis <architecture> <input_id>"
+    exit 1
+}
+
+set SYNTH_INPUT_ID $::env(SYNTH_INPUT_ID)
+if {![regexp {^[a-z0-9_]+$} $SYNTH_INPUT_ID]} {
+    puts {RM-Error: SYNTH_INPUT_ID must match [a-z0-9_]+.}
     exit 1
 }
 
@@ -146,6 +159,7 @@ set RUN_DIR \
         [file join \
             $SYNTH_DIR \
             runs \
+            $SYNTH_INPUT_ID \
             $SELECTED_ARCH \
             $SYNTH_RUN_LABEL]]
 
@@ -175,6 +189,7 @@ puts "============================================================"
 puts "RM-Info: Synthesis configuration"
 puts "============================================================"
 puts "RM-Info: Architecture : ${SELECTED_ARCH}"
+puts "RM-Info: Input ID     : ${SYNTH_INPUT_ID}"
 puts "RM-Info: Design name  : ${DESIGN_NAME}"
 puts "RM-Info: Run label    : ${SYNTH_RUN_LABEL}"
 puts "RM-Info: File list    : ${RTL_FILELIST}"
@@ -206,11 +221,12 @@ if {$synopsys_program_name == "dc_shell"} {
 # Design Compiler Output Configuration
 #################################################################################
 
-# Keep a separate physical design database for each architecture.
+# Keep a separate physical design database for each input configuration and
+# architecture.
 #
 # This overrides the default value loaded from dc_setup_filenames.tcl.
 set DCRM_MW_LIBRARY_NAME \
-    "MY_DESIGN_LIB_${SELECTED_ARCH}_${SYNTH_RUN_LABEL}"
+    "MY_DESIGN_LIB_${SYNTH_INPUT_ID}_${SELECTED_ARCH}_${SYNTH_RUN_LABEL}"
 
 #################################################################################
 # Optimization Flow

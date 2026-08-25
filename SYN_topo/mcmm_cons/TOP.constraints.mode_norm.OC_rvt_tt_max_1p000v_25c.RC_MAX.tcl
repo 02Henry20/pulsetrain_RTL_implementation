@@ -16,9 +16,8 @@
 #                                 #
 ###################################
 
-# Remove any existing constraints and attributes
-#
-reset_design
+# The driver resets the default design once before creating any scenarios.
+# reset_design here would erase constraints from scenarios created earlier.
 
 
 ###################################
@@ -151,7 +150,7 @@ set_load 0.005 [all_outputs]
 
 set_isolate_ports [all_outputs]
 
-set_ideal_network [get_ports "CLK RSTn RST"]
+set_ideal_network [get_ports {CLK RST}]
 
 # no through pass assign syntax => insert buffers
 set_fix_multiple_port_nets -all -buffer_constants -feedthroughs -constants

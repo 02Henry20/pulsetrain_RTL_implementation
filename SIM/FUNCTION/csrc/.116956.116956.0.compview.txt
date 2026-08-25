@@ -1,0 +1,9 @@
+{"vcs1":{"timestamp_begin":1787648146.006810249, "rt":0.53, "ut":0.32, "st":0.16}}
+{"vcselab":{"timestamp_begin":1787648146.633208758, "rt":0.24, "ut":0.15, "st":0.08}}
+{"link":{"timestamp_begin":1787648146.945261996, "rt":0.21, "ut":0.11, "st":0.10}}
+{"SNPS_VCS_INTERNAL_ROOT_START_TIME": 1787648145.585791398}
+{"VCS_COMP_START_TIME": 1787648145.585791398}
+{"VCS_COMP_END_TIME": 1787648147.298640355}
+{"VCS_USER_OPTIONS": "-full64 -sverilog -timescale=1ns/1ps -top TB_REPLAY -f filelists/lfsr_sort_group_mask.f ../TESTBENCH/TB_REPLAY.sv -pvalue+TB_REPLAY.CROSSBAR_DIMENSION=64 -pvalue+TB_REPLAY.MAX_BL=7 -pvalue+TB_REPLAY.STOCHASTIC_VALUE_WIDTH=16 -pvalue+TB_REPLAY.OUTPUT_BUFFER_DEPTH=6 -pvalue+TB_REPLAY.DIGITAL_CLOCK_NS=10 -pvalue+TB_REPLAY.LFSR_SEED=44257 -debug_access+r -o /home/henry/SS28_SCRIPT/CUSTOM/work/data8_1e_04_shared/simulation/lfsr_sort_group_mask/simv"}
+{"vcs1": {"peak_mem": 312816}}
+{"vcselab": {"peak_mem": 174712}}

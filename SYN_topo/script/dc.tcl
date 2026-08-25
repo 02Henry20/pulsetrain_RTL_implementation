@@ -113,12 +113,16 @@ if {[llength $ELABORATION_PARAMETERS] > 0} {
 #read_ddc memory_wrapper.mapped.ddc
 #read_ddc fifo.mapped.ddc
 
-current_design ${DESIGN_NAME}
+# elaborate leaves the selected (and possibly parameterized) design current.
 link
+
+# Record RTL names so a later read_saif can annotate the mapped netlist.
+# This does not feed activity into compile_ultra, so area/fmax stay unchanged.
+catch {saif_map -start}
 
 # Capture the elaborated, pre-optimization hierarchy so the no-replay
 # synthesis configuration can be audited for RNG and pulse-generator logic.
-report_hierarchy -full_name > ${REPORTS_DIR}/precompile_hierarchy.rpt
+report_hierarchy > ${REPORTS_DIR}/precompile_hierarchy.rpt
 
 # OR
 
@@ -171,6 +175,9 @@ if { $OPTIMIZATION_FLOW == "hc"} {
 # Smkcow
 # So important at TOP module
 # Or, scenarios is duplicated and make compile errors
+# Clear any default-scenario constraints once.  Calling reset_design from an
+# individual MCMM constraint file erases scenarios that were created earlier.
+reset_design
 remove_scenario -all
 
 puts "RM-Info: Sourcing script file [which ${DCRM_MCMM_SCENARIOS_SETUP_FILE}]\n"
@@ -1282,6 +1289,278 @@ report_resources -hierarchy > ${REPORTS_DIR}/${DCRM_FINAL_RESOURCES_REPORT}
 report_clock_gating -nosplit > ${REPORTS_DIR}/${DCRM_FINAL_CLOCK_GATING_REPORT}
 }
 
+#################################################################################
+# Post-map SAIF power for CUSTOM replay activity. Compile QoR is unchanged.
+#################################################################################
+proc ss28_to_watts {value unit} {
+  switch -- [string tolower $unit] {
+    pw { return [expr {double($value) * 1e-12}] }
+    nw { return [expr {double($value) * 1e-9}] }
+    uw { return [expr {double($value) * 1e-6}] }
+    mw { return [expr {double($value) * 1e-3}] }
+    w  { return [expr {double($value)}] }
+    kw { return [expr {double($value) * 1e3}] }
+    default { return {} }
+  }
+}
+proc ss28_parse_power_field {text pattern} {
+  set re [format {%s\s*=\s*([0-9.eE+-]+)\s*([pnumk]?W)} $pattern]
+  if {[regexp -nocase -- $re $text -> num unit]} {
+    return [ss28_to_watts $num $unit]
+  }
+  return {}
+}
+proc ss28_parse_mapped_power {text} {
+  set internal [ss28_parse_power_field $text {Cell Internal Power}]
+  set switching [ss28_parse_power_field $text {Net Switching Power}]
+  set dynamic [ss28_parse_power_field $text {Total Dynamic Power}]
+  set leakage [ss28_parse_power_field $text {Cell Leakage Power}]
+  set total [ss28_parse_power_field $text {Total Power}]
+  if {$internal eq {} || $switching eq {} || $dynamic eq {} || $leakage eq {} || $total eq {}} {
+    if {[regexp -nocase {\nTotal[[:space:]]+([0-9.eE+-]+)[[:space:]]*([pnumk]?W)[[:space:]]+([0-9.eE+-]+)[[:space:]]*([pnumk]?W)[[:space:]]+([0-9.eE+-]+)[[:space:]]*([pnumk]?W)[[:space:]]+([0-9.eE+-]+)[[:space:]]*([pnumk]?W)} $text -> in_n in_u sw_n sw_u lk_n lk_u tot_n tot_u]} {
+      set internal [ss28_to_watts $in_n $in_u]
+      set switching [ss28_to_watts $sw_n $sw_u]
+      set leakage [ss28_to_watts $lk_n $lk_u]
+      set total [ss28_to_watts $tot_n $tot_u]
+      if {$internal ne {} && $switching ne {}} {
+        set dynamic [expr {$internal + $switching}]
+      }
+    }
+  }
+  return [list $internal $switching $dynamic $leakage $total]
+}
+proc ss28_saif_duration_ns {filename} {
+  if {![file exists $filename]} { return {} }
+  set fh [open $filename r]
+  set timescale_ns 1.0
+  set timescale_valid 1
+  set duration {}
+  while {[gets $fh line] >= 0} {
+    if {[regexp {\(TIMESCALE\s+([0-9.]+)\s*([A-Za-z]+)\)} $line -> val unit]} {
+      switch -- [string tolower $unit] {
+        ps { set timescale_ns [expr {double($val) * 0.001}] }
+        ns { set timescale_ns [expr {double($val)}] }
+        us { set timescale_ns [expr {double($val) * 1e3}] }
+        ms { set timescale_ns [expr {double($val) * 1e6}] }
+        s  { set timescale_ns [expr {double($val) * 1e9}] }
+        fs { set timescale_ns [expr {double($val) * 1e-6}] }
+        default { set timescale_valid 0 }
+      }
+    }
+    if {[regexp {\(DURATION\s+([0-9.eE+-]+)\)} $line -> dur]} {
+      set duration $dur
+    }
+    if {$duration ne {} && [regexp {INSTANCE} $line]} { break }
+  }
+  close $fh
+  if {$duration eq {} || !$timescale_valid} { return {} }
+  return [expr {double($duration) * $timescale_ns}]
+}
+proc ss28_write_power_summary {csv values} {
+  set fh [open $csv w]
+  puts $fh "metric,value,unit"
+  foreach {m v u} $values {
+    # read_saif errors can contain commas and newlines.  Quote every field so a
+    # failed power point still produces a valid CSV that Python can diagnose.
+    set qm [string map [list \" \"\"] $m]
+    set qv [string map [list \" \"\"] $v]
+    set qu [string map [list \" \"\"] $u]
+    puts $fh "\"${qm}\",\"${qv}\",\"${qu}\""
+  }
+  close $fh
+}
+proc ss28_try_read_saif {saif_file} {
+  if {[info exists ::env(SAIF_INSTANCE)] && $::env(SAIF_INSTANCE) ne ""} {
+    set instance $::env(SAIF_INSTANCE)
+  } else {
+    set instance {TB_REPLAY/dut}
+  }
+  if {[catch {read_saif -auto_map_names -input $saif_file -instance $instance -verbose} err]} {
+    error "read_saif failed for instance ${instance}: $err"
+  }
+  puts "RM-Info: read_saif instance ${instance}"
+  return $instance
+}
+proc ss28_set_clock_period {period_ns} {
+  if {![string is double -strict $period_ns] || $period_ns <= 0} {
+    error "clock period must be a positive number, got '${period_ns}'"
+  }
+  if {[catch {set scenario [current_scenario]} err] || $scenario eq {}} {
+    error "cannot determine the current MCMM scenario: $err"
+  }
+  set clk_port [get_ports -quiet CLK]
+  if {[sizeof_collection $clk_port] != 1} {
+    error "expected exactly one CLK port in scenario ${scenario}"
+  }
+
+  # Clocks are scenario-specific in this MCMM flow.  This dc_shell release does
+  # not support get_clocks -of_objects, so use the clock name established by all
+  # four scenario constraint files.  Allow an empty scenario, but reject an
+  # unexpected differently named clock rather than silently replacing it.
+  set old_clocks [get_clocks -quiet MAIN_CLOCK]
+  if {[sizeof_collection $old_clocks] > 1} {
+    error "multiple MAIN_CLOCK objects found in scenario ${scenario}"
+  }
+  if {[sizeof_collection $old_clocks] == 0 &&
+      [sizeof_collection [get_clocks -quiet *]] > 0} {
+    error "MAIN_CLOCK missing while other clocks exist in scenario ${scenario}"
+  }
+  if {[sizeof_collection $old_clocks] == 1} {
+    remove_clock $old_clocks
+  }
+  if {[catch {
+    create_clock -name MAIN_CLOCK -period $period_ns $clk_port
+  } err]} {
+    error "create_clock failed in scenario ${scenario}: $err"
+  }
+  if {[catch {
+    set clocks [get_clocks -quiet MAIN_CLOCK]
+  } err]} {
+    error "cannot query MAIN_CLOCK in scenario ${scenario}: $err"
+  }
+  if {[sizeof_collection $clocks] != 1} {
+    error "expected exactly one MAIN_CLOCK after create_clock in scenario ${scenario}"
+  }
+  set actual_period [lindex [get_attribute $clocks period] 0]
+  if {![string is double -strict $actual_period] ||
+      abs(double($actual_period) - double($period_ns)) > 1.0e-9} {
+    error "MAIN_CLOCK period verification failed in scenario ${scenario}: requested ${period_ns}, got ${actual_period}"
+  }
+  puts "RM-Info: MAIN_CLOCK period=${actual_period} ns scenario=${scenario}"
+  return $actual_period
+}
+proc ss28_report_tb_energy {} {
+  global REPORTS_DIR
+  if {![info exists ::env(POWER_SAIF_LIST)] || $::env(POWER_SAIF_LIST) eq ""} {
+    puts "RM-Info: POWER_SAIF_LIST empty; skipping SAIF power"
+    return 0
+  }
+  if {![info exists ::env(DIGITAL_CLOCK_NS)] || $::env(DIGITAL_CLOCK_NS) <= 0} {
+    error "DIGITAL_CLOCK_NS must be positive for SAIF power"
+  }
+  if {![info exists ::env(SYNTH_TARGET_PERIOD_NS)] || $::env(SYNTH_TARGET_PERIOD_NS) <= 0} {
+    error "SYNTH_TARGET_PERIOD_NS must be positive to restore the synthesis clock"
+  }
+  set power_dir [file join ${REPORTS_DIR} power]
+  file mkdir $power_dir
+  if {[catch {set_app_var power_default_toggle_rate 0} err]} {
+    error "cannot set power_default_toggle_rate to zero: $err"
+  }
+  if {[catch {set saved_scenario [current_scenario]} err] ||
+      $saved_scenario eq {}} {
+    error "cannot save the current MCMM scenario: $err"
+  }
+  set typical mode_norm.OC_rvt_tt_max_1p000v_25c.RC_MAX
+  if {[catch {current_scenario $typical} err]} {
+    error "cannot select required power scenario ${typical}: $err"
+  }
+  set power_scenario [current_scenario]
+  set clock_ok 0
+  set clock_error {}
+  if {[catch {
+    ss28_set_clock_period $::env(DIGITAL_CLOCK_NS)
+  } clock_error]} {
+    puts "RM-Power-Error: clock setup failed: $clock_error"
+  } else {
+    set clock_ok 1
+  }
+  set failures 0
+  array set seen_pulses {}
+  foreach item [split $::env(POWER_SAIF_LIST) ";"] {
+    set item [string trim $item]
+    if {$item eq ""} { continue }
+    set split_at [string first "=" $item]
+    if {$split_at < 1} {
+      puts "RM-Warning: malformed POWER_SAIF_LIST entry: $item"
+      incr failures
+      continue
+    }
+    set pulse [string range $item 0 [expr {$split_at - 1}]]
+    set saif_file [string range $item [expr {$split_at + 1}] end]
+    if {![regexp {^[1-9][0-9]*$} $pulse] || $saif_file eq ""} {
+      puts "RM-Warning: invalid pulse or SAIF path in POWER_SAIF_LIST: $item"
+      incr failures
+      continue
+    }
+    if {[info exists seen_pulses($pulse)]} {
+      puts "RM-Warning: duplicate SAIF power point for ${pulse} ns"
+      incr failures
+      continue
+    }
+    set seen_pulses($pulse) 1
+    set summary [file join $power_dir ${pulse}ns.summary.csv]
+    set report [file join $power_dir ${pulse}ns.power.rpt]
+    puts "RM-Info: SAIF power T_pulse=${pulse} ns"
+    if {!$clock_ok} {
+      ss28_write_power_summary $summary [list status FAIL none error "clock_setup_failed: $clock_error" none pulse_time_ns $pulse ns saif_file $saif_file path power_scenario $power_scenario scenario]
+      incr failures
+      continue
+    }
+    if {![file exists $saif_file]} {
+      ss28_write_power_summary $summary [list status FAIL none error missing_saif none pulse_time_ns $pulse ns saif_file $saif_file path power_scenario $power_scenario scenario]
+      incr failures
+      continue
+    }
+    catch {reset_switching_activity}
+    if {[catch {set instance [ss28_try_read_saif $saif_file]} err]} {
+      ss28_write_power_summary $summary [list status FAIL none error $err none pulse_time_ns $pulse ns saif_file $saif_file path]
+      incr failures
+      continue
+    }
+    if {[catch {redirect $report {report_power -nosplit}} err]} {
+      ss28_write_power_summary $summary [list status FAIL none error $err none pulse_time_ns $pulse ns saif_file $saif_file path saif_instance $instance path]
+      incr failures
+      continue
+    }
+    set power_text {}
+    catch {set fh [open $report r]; set power_text [read $fh]; close $fh}
+    set mapped_power [ss28_parse_mapped_power $power_text]
+    set internal [lindex $mapped_power 0]
+    set switching [lindex $mapped_power 1]
+    set dynamic [lindex $mapped_power 2]
+    set leakage [lindex $mapped_power 3]
+    set total [lindex $mapped_power 4]
+    if {$total eq {} && $dynamic ne {} && $leakage ne {}} {
+      set total [expr {$dynamic + $leakage}]
+    }
+    set annotated {}
+    regexp -nocase {([0-9.]+)\s*%[^\n]*annotat} $power_text -> annotated
+    set duration_ns [ss28_saif_duration_ns $saif_file]
+    set status PASS
+    set error_text {}
+    if {$total eq {} || $total <= 0 || $dynamic eq {} || $leakage eq {}} {
+      set status FAIL
+      set error_text missing_power_fields
+    } elseif {$duration_ns eq {} || $duration_ns <= 0} {
+      set status FAIL
+      set error_text missing_saif_duration
+    }
+    if {$status ne "PASS"} {
+      incr failures
+    }
+    ss28_write_power_summary $summary [list status $status none error $error_text none pulse_time_ns $pulse ns saif_file $saif_file path saif_instance $instance path power_scenario $power_scenario scenario clock_period_ns $::env(DIGITAL_CLOCK_NS) ns saif_duration_ns $duration_ns ns cell_internal_power_w $internal W net_switching_power_w $switching W dynamic_power_w $dynamic W leakage_power_w $leakage W total_power_w $total W annotated_percent $annotated percent]
+  }
+  if {[catch {
+    ss28_set_clock_period $::env(SYNTH_TARGET_PERIOD_NS)
+  } restore_error]} {
+    puts "RM-Power-Error: cannot restore synthesis clock: $restore_error"
+    incr failures
+  }
+  if {[catch {current_scenario $saved_scenario} restore_scenario_error]} {
+    puts "RM-Power-Error: cannot restore scenario ${saved_scenario}: $restore_scenario_error"
+    incr failures
+  }
+  return $failures
+}
+puts "RM-Info: SS28 post-map power begin"
+set ss28_power_failures 0
+if {[catch {set ss28_power_failures [ss28_report_tb_energy]} ss28_power_error]} {
+  puts "RM-Power-Error: SAIF power analysis aborted: ${ss28_power_error}"
+  set ss28_power_failures -1
+} elseif {$ss28_power_failures > 0} {
+  puts "RM-Power-Error: ${ss28_power_failures} SAIF power point(s) failed"
+}
+puts "RM-Info: SS28 post-map power end"
 # Create a QoR snapshot of timing, physical, constraints, clock, power data, and routing on 
 # active scenarios and stores it in the location  specified  by  the icc_snapshot_storage_location 
 # variable. 

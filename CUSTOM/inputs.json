@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "inputs": [
+    {
+      "id": "data8_1e_04",
+      "enabled": true,
+      "file": "input/rtl_trace_data8_1e-04.csv",
+      "metadata_file": "input/metadata/rtl_trace_data8_1e-04.updates.csv",
+      "crossbar_dimension": 64,
+      "max_bl": 6,
+      "pulse_source": "independent_lfsr",
+      "pulse_times_ns": [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000],
+      "description": "AIHWKIT realized pulses at 1e-04 granularity"
+    },
+    {
+      "id": "data8_1e_05",
+      "enabled": true,
+      "file": "input/rtl_trace_data8_1e-05.csv",
+      "metadata_file": "input/metadata/rtl_trace_data8_1e-05.updates.csv",
+      "crossbar_dimension": 64,
+      "max_bl": 59,
+      "pulse_source": "independent_lfsr",
+      "pulse_times_ns": [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000],
+      "description": "AIHWKIT realized pulses at 1e-05 granularity"
+    },
+    {
+      "id": "data8_1e_04_shared",
+      "enabled": true,
+      "file": "input/rtl_trace_data8_1e-04_shared.csv",
+      "metadata_file": "input/metadata/rtl_trace_data8_1e-04_shared.updates.csv",
+      "crossbar_dimension": 64,
+      "max_bl": 7,
+      "pulse_source": "shared_lfsr",
+      "pulse_times_ns": [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000],
+      "description": "AIHWKIT realized pulses at 1e-04 granularity + shared RNG"
+    },
+    {
+      "id": "data8_1e_05_shared",
+      "enabled": true,
+      "file": "input/rtl_trace_data8_1e-05_shared.csv",
+      "metadata_file": "input/metadata/rtl_trace_data8_1e-05_shared.updates.csv",
+      "crossbar_dimension": 64,
+      "max_bl": 65,
+      "pulse_source": "shared_lfsr",
+      "pulse_times_ns": [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000],
+      "description": "AIHWKIT realized pulses at 1e-05 granularity + shared RNG"
+    }
+  ]
+}

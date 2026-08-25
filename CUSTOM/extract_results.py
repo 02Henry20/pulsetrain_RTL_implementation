@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Aggregate replay latency and no-SAIF synthesis reports."""
-
-from __future__ import annotations
+"""Aggregate multi-input replay latency, synthesis, and SAIF energy reports."""
 
 import argparse
 import csv
+import json
 import math
 import re
 import statistics
@@ -14,26 +13,21 @@ from pathlib import Path
 FLOAT = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
 
 
-def args() -> argparse.Namespace:
+def args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--architectures", nargs="+", required=True)
-    parser.add_argument("--pulse-times", nargs="+", type=int, required=True)
-    parser.add_argument("--baseline", required=True)
+    parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--per-update-dir", type=Path, required=True)
     parser.add_argument("--synth-root", type=Path, required=True)
-    parser.add_argument("--trace-stats", type=Path, required=True)
+    parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--run-status", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--trace", required=True)
-    parser.add_argument("--dimension", type=int, required=True)
-    parser.add_argument("--max-bl", type=int, required=True)
     parser.add_argument("--clock-ns", type=float, required=True)
     parser.add_argument("--seed", required=True)
     parser.add_argument("--target-period-ns", type=float, required=True)
     return parser.parse_args()
 
 
-def percentile(values: list[float], fraction: float) -> float:
+def percentile(values, fraction):
     ordered = sorted(values)
     if len(ordered) == 1:
         return ordered[0]
@@ -45,7 +39,7 @@ def percentile(values: list[float], fraction: float) -> float:
     return ordered[lower] + (ordered[upper] - ordered[lower]) * (point - lower)
 
 
-def fmt(value: object, digits: int = 3) -> str:
+def fmt(value, digits=3):
     if value is None or value == "":
         return ""
     if isinstance(value, float):
@@ -53,44 +47,85 @@ def fmt(value: object, digits: int = 3) -> str:
     return str(value)
 
 
-def read_key_values(path: Path) -> dict[str, str]:
-    with path.open(newline="", encoding="utf-8") as handle:
-        rows = csv.DictReader(handle)
-        return {row["metric"]: row["value"] for row in rows}
-
-
-def read_status(path: Path) -> dict[tuple[str, str, str], str]:
+def read_key_values(path):
     if not path.is_file():
         return {}
-    with path.open(newline="", encoding="utf-8") as handle:
-        return {
-            (row["stage"], row["architecture"], row["pulse_time_ns"]): row["status"]
-            for row in csv.DictReader(handle)
-        }
+    try:
+        with path.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        if not rows or any(
+            not isinstance(row, dict) or "metric" not in row or "value" not in row
+            for row in rows
+        ):
+            return {}
+        metrics = [row["metric"] for row in rows]
+        if any(metric in (None, "") for metric in metrics) or len(set(metrics)) != len(metrics):
+            return {}
+        return {row["metric"]: row["value"] for row in rows}
+    except (OSError, csv.Error, UnicodeError):
+        return {}
 
 
-def parse_simulation(path: Path) -> dict[str, object]:
+def read_status(path):
     if not path.is_file():
-        return {"simulation_status": "FAIL", "updates": 0, "errors": 1}
-    with path.open(newline="", encoding="utf-8") as handle:
-        rows = list(csv.DictReader(handle))
-    if not rows:
-        return {"simulation_status": "FAIL", "updates": 0, "errors": 1}
+        return {}
+    try:
+        with path.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        statuses = {}
+        for row in rows:
+            key = (
+                row["stage"], row.get("input_id", ""), row["architecture"],
+                row["pulse_time_ns"],
+            )
+            if key in statuses or row["status"] not in {"PASS", "FAIL", "SKIP"}:
+                return {}
+            statuses[key] = row["status"]
+        return statuses
+    except (OSError, csv.Error, KeyError, TypeError, UnicodeError):
+        return {}
 
-    bl = [float(row["input_bl"]) for row in rows]
-    output = [float(row["output_pulse_positions"]) for row in rows]
-    latency = [float(row["latency_ns"]) for row in rows]
-    errors = sum(int(row["errors"]) for row in rows)
-    bypass = sum(int(row["group_mask_bypass"]) for row in rows)
-    mean_bl = statistics.fmean(bl)
-    mean_output = statistics.fmean(output)
+
+def failed_simulation_result():
+    return {
+        "simulation_status": "FAIL", "updates": 0, "errors": 1,
+        "group_mask_bypass_updates": 0,
+    }
+
+
+def parse_simulation(path):
+    if not path.is_file():
+        return failed_simulation_result()
+    try:
+        with path.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        if not rows:
+            return failed_simulation_result()
+        bl = [float(row["input_bl"]) for row in rows]
+        output = [float(row["output_pulse_positions"]) for row in rows]
+        latency = [float(row["latency_ns"]) for row in rows]
+        errors = sum(int(row["errors"]) for row in rows)
+        bypass = sum(int(row["group_mask_bypass"]) for row in rows)
+    except (OSError, csv.Error, KeyError, TypeError, ValueError):
+        return failed_simulation_result()
+    numeric_values = bl + output + latency
+    if (
+        not all(math.isfinite(value) for value in numeric_values)
+        or any(value <= 0 for value in bl)
+        or any(value < 0 for value in output + latency)
+        or errors < 0
+        or bypass < 0
+    ):
+        return failed_simulation_result()
+    mean_bl = statistics.mean(bl)
+    mean_output = statistics.mean(output)
     return {
         "simulation_status": "PASS" if errors == 0 else "FAIL",
         "updates": len(rows),
         "mean_input_bl": mean_bl,
         "mean_output_pulse_positions": mean_output,
         "pulse_position_reduction": 1.0 - mean_output / mean_bl,
-        "mean_latency_ns": statistics.fmean(latency),
+        "mean_latency_ns": statistics.mean(latency),
         "median_latency_ns": statistics.median(latency),
         "std_latency_ns": statistics.pstdev(latency),
         "p95_latency_ns": percentile(latency, 0.95),
@@ -99,13 +134,181 @@ def parse_simulation(path: Path) -> dict[str, object]:
     }
 
 
-def first_number(text: str, label: str) -> float | None:
+def first_number(text, label):
     match = re.search(rf"{re.escape(label)}\s*:\s*({FLOAT})", text, re.IGNORECASE)
     return float(match.group(1)) if match else None
 
 
-def slacks(paths: list[Path]) -> list[tuple[str, float]]:
-    found: list[tuple[str, float]] = []
+TIME_UNITS_NS = {
+    "fs": 1e-6, "ps": 1e-3, "ns": 1.0, "us": 1e3, "ms": 1e6, "s": 1e9,
+}
+
+
+def parse_saif_duration_ns(path):
+    if not path.is_file():
+        return None
+    timescale_ns = 1.0
+    duration = None
+    try:
+        text = path.read_text(errors="ignore")
+    except OSError:
+        return None
+    match = re.search(
+        r"\(TIMESCALE\s+([0-9.]+)\s*([A-Za-z]+)\)", text, re.IGNORECASE
+    )
+    if match:
+        unit_scale = TIME_UNITS_NS.get(match.group(2).lower())
+        if unit_scale is None:
+            return None
+        timescale_ns = float(match.group(1)) * unit_scale
+    match = re.search(r"\(DURATION\s+([0-9.+-eE]+)\)", text, re.IGNORECASE)
+    if match:
+        duration = float(match.group(1))
+    if duration is None:
+        return None
+    return duration * timescale_ns
+
+
+POWER_UNITS_W = {
+    "pw": 1e-12, "nw": 1e-9, "uw": 1e-6, "mw": 1e-3, "w": 1.0, "kw": 1e3,
+}
+
+
+def parse_power_report(path):
+    if not path.is_file():
+        return {}
+    try:
+        text = path.read_text(errors="ignore")
+    except OSError:
+        return {}
+
+    def to_watts(num, unit):
+        scale = POWER_UNITS_W.get(unit.lower())
+        if scale is None:
+            return None
+        return float(num) * scale
+
+    def grab(label):
+        match = re.search(
+            rf"{re.escape(label)}\s*=\s*({FLOAT})\s*([pnumk]?W)",
+            text, re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return to_watts(match.group(1), match.group(2))
+
+    values = {
+        "cell_internal_power_w": grab("Cell Internal Power"),
+        "net_switching_power_w": grab("Net Switching Power"),
+        "dynamic_power_w": grab("Total Dynamic Power"),
+        "leakage_power_w": grab("Cell Leakage Power"),
+        "total_power_w": grab("Total Power"),
+    }
+    if all(value is not None for value in values.values()):
+        return values
+    match = re.search(
+        rf"(?m)^Total\s+({FLOAT})\s*([pnumk]?W)\s+({FLOAT})\s*([pnumk]?W)\s+"
+        rf"({FLOAT})\s*([pnumk]?W)\s+({FLOAT})\s*([pnumk]?W)",
+        text,
+        re.IGNORECASE,
+    )
+    if not match:
+        return values
+    internal = to_watts(match.group(1), match.group(2))
+    switching = to_watts(match.group(3), match.group(4))
+    leakage = to_watts(match.group(5), match.group(6))
+    total = to_watts(match.group(7), match.group(8))
+    dynamic = None if internal is None or switching is None else internal + switching
+    return {
+        "cell_internal_power_w": values["cell_internal_power_w"] if values["cell_internal_power_w"] is not None else internal,
+        "net_switching_power_w": values["net_switching_power_w"] if values["net_switching_power_w"] is not None else switching,
+        "dynamic_power_w": values["dynamic_power_w"] if values["dynamic_power_w"] is not None else dynamic,
+        "leakage_power_w": values["leakage_power_w"] if values["leakage_power_w"] is not None else leakage,
+        "total_power_w": values["total_power_w"] if values["total_power_w"] is not None else total,
+    }
+
+
+def parse_power_summary(path):
+    values = read_key_values(path)
+    if not values:
+        return {}
+    parsed = dict(values)
+    for key in (
+        "pulse_time_ns", "clock_period_ns", "saif_duration_ns",
+        "cell_internal_power_w", "net_switching_power_w", "dynamic_power_w",
+        "leakage_power_w", "total_power_w", "annotated_percent",
+    ):
+        if key in parsed and parsed[key] != "":
+            try:
+                parsed[key] = float(parsed[key])
+            except ValueError:
+                parsed[key] = None
+        else:
+            parsed.setdefault(key, None)
+    return parsed
+
+
+def parse_energy(root, input_id, architecture, pulse, stats):
+    failed = {
+        "energy_status": "FAIL", "power_mw": None, "leakage_power_mw": None,
+        "dynamic_power_mw": None, "tb_energy_nj": None,
+        "energy_per_pulse_pj": None, "saif_duration_ns": None,
+        "total_pulses": None, "annotated_percent": None,
+        "power_error": "missing_power_summary",
+    }
+    try:
+        total_pulses = int(float(stats.get("total_pulses", 0)))
+    except (TypeError, ValueError):
+        total_pulses = 0
+    failed["total_pulses"] = total_pulses
+    summary = (
+        root / input_id / architecture / "no_saif" / "reports" / "power" /
+        f"{pulse}ns.summary.csv"
+    )
+    values = parse_power_summary(summary)
+    if not values:
+        return failed
+    report_values = parse_power_report(summary.with_name(f"{pulse}ns.power.rpt"))
+    for key, value in report_values.items():
+        if values.get(key) in (None, "") and value is not None:
+            values[key] = value
+    total_w = values.get("total_power_w")
+    duration_ns = values.get("saif_duration_ns")
+    saif_file = values.get("saif_file")
+    if duration_ns is None and saif_file:
+        duration_ns = parse_saif_duration_ns(Path(saif_file))
+    leakage_w = values.get("leakage_power_w")
+    dynamic_w = values.get("dynamic_power_w")
+    numbers_ok = (
+        total_w is not None and math.isfinite(total_w) and total_w > 0 and
+        duration_ns is not None and math.isfinite(duration_ns) and duration_ns > 0 and
+        total_pulses > 0 and
+        dynamic_w is not None and math.isfinite(dynamic_w) and
+        leakage_w is not None and math.isfinite(leakage_w)
+    )
+    if not numbers_ok:
+        failed["power_error"] = values.get("error") or (
+            "power_summary_failed" if values.get("status") != "PASS"
+            else "invalid_power_duration_or_pulse_count"
+        )
+        return failed
+    energy_j = total_w * duration_ns * 1e-9
+    return {
+        "energy_status": "PASS",
+        "power_mw": total_w * 1e3,
+        "leakage_power_mw": None if leakage_w is None else leakage_w * 1e3,
+        "dynamic_power_mw": None if dynamic_w is None else dynamic_w * 1e3,
+        "tb_energy_nj": energy_j * 1e9,
+        "energy_per_pulse_pj": energy_j * 1e12 / total_pulses,
+        "saif_duration_ns": duration_ns,
+        "total_pulses": total_pulses,
+        "annotated_percent": values.get("annotated_percent"),
+        "power_error": "",
+    }
+
+
+def slacks(paths):
+    found = []
     pattern = re.compile(rf"slack\s*\((MET|VIOLATED)\)\s*({FLOAT})", re.IGNORECASE)
     for path in paths:
         text = path.read_text(errors="ignore")
@@ -113,8 +316,8 @@ def slacks(paths: list[Path]) -> list[tuple[str, float]]:
     return found
 
 
-def parse_synthesis(root: Path, architecture: str, target: float) -> dict[str, object]:
-    reports = root / architecture / "no_saif" / "reports"
+def parse_synthesis(root, input_id, architecture, target):
+    reports = root / input_id / architecture / "no_saif" / "reports"
     area_files = list(reports.glob("*mapped.area.rpt")) if reports.is_dir() else []
     max_files = list(reports.glob("*.timing_max.rpt"))
     min_files = list(reports.glob("*.timing_min.rpt"))
@@ -131,25 +334,48 @@ def parse_synthesis(root: Path, architecture: str, target: float) -> dict[str, o
     cell_count = first_number(area_text, "Number of cells")
     comb_area = first_number(area_text, "Combinational area")
     seq_area = first_number(area_text, "Noncombinational area")
+    if total_area is None or not math.isfinite(total_area) or total_area <= 0:
+        return {
+            "synthesis_status": "FAIL", "setup_status": "NOT_RUN",
+            "drc_status": "NOT_RUN", "hold_advisory": "NOT_RUN",
+            "target_period_ns": target,
+        }
 
     setup_slacks = slacks(max_files)
     hold_slacks = slacks(min_files)
     worst_setup = min((value for _, value in setup_slacks), default=None)
     worst_hold = min((value for _, value in hold_slacks), default=None)
-    setup_violations = sum(1 for state, value in setup_slacks if state == "VIOLATED" or value < 0)
+    setup_violations = sum(
+        1 for state, value in setup_slacks if state == "VIOLATED" or value < 0
+    )
 
     drc_violations = 0
     for path in constraint_files:
         for line in path.read_text(errors="ignore").splitlines():
             lowered = line.lower()
-            if ("max_transition" in lowered or "max_capacitance" in lowered) and "violated" in lowered:
+            if (
+                ("max_transition" in lowered or "max_capacitance" in lowered)
+                and "violated" in lowered
+            ):
                 drc_violations += 1
 
-    setup_status = "UNKNOWN" if worst_setup is None else ("PASS" if setup_violations == 0 else "FAIL")
-    drc_status = "UNKNOWN" if not constraint_files else ("PASS" if drc_violations == 0 else "FAIL")
-    hold_status = "UNKNOWN" if worst_hold is None else ("PASS" if worst_hold >= 0 else "VIOLATED")
+    setup_status = (
+        "UNKNOWN" if worst_setup is None else
+        ("PASS" if setup_violations == 0 else "FAIL")
+    )
+    drc_status = (
+        "UNKNOWN" if not constraint_files else
+        ("PASS" if drc_violations == 0 else "FAIL")
+    )
+    hold_status = (
+        "UNKNOWN" if worst_hold is None else
+        ("PASS" if worst_hold >= 0 else "VIOLATED")
+    )
     estimated_period = None if worst_setup is None else target - worst_setup
-    qualified = setup_status == "PASS" and drc_status == "PASS" and estimated_period and estimated_period > 0
+    qualified = (
+        setup_status == "PASS" and drc_status == "PASS" and
+        estimated_period and estimated_period > 0
+    )
     fmax = 1000.0 / estimated_period if qualified else None
 
     return {
@@ -171,134 +397,373 @@ def parse_synthesis(root: Path, architecture: str, target: float) -> dict[str, o
     }
 
 
-def write_csv(path: Path, rows: list[dict[str, object]], fields: list[str]) -> None:
+def write_csv(path, rows, fields, digits=3):
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         for row in rows:
-            writer.writerow({field: fmt(row.get(field)) for field in fields})
+            writer.writerow(
+                {field: fmt(row.get(field), digits) for field in fields}
+            )
 
 
-def markdown_table(fields: list[str], labels: list[str], rows: list[dict[str, object]]) -> list[str]:
-    lines = ["| " + " | ".join(labels) + " |", "| " + " | ".join(["---"] * len(fields)) + " |"]
+def markdown_table(fields, labels, rows):
+    lines = [
+        "| " + " | ".join(labels) + " |",
+        "| " + " | ".join(["---"] * len(fields)) + " |",
+    ]
     for row in rows:
-        cells: list[str] = []
+        cells = []
         for field in fields:
             value = row.get(field)
-            if field in {"relative_latency_saving", "pulse_position_reduction", "normalized_area_vs_baseline"} and isinstance(value, float):
-                cells.append(f"{100.0 * value:.2f}%" if field != "normalized_area_vs_baseline" else f"{value:.3f}x")
+            if field in {
+                "relative_latency_saving", "pulse_position_reduction",
+                "normalized_area_vs_baseline",
+            } and isinstance(value, float):
+                cells.append(
+                    f"{100.0 * value:.2f}%"
+                    if field != "normalized_area_vs_baseline" else f"{value:.3f}x"
+                )
             else:
                 cells.append(fmt(value))
         lines.append("| " + " | ".join(cells) + " |")
     return lines
 
 
-def main() -> int:
+def job_common(job):
+    return {
+        "input_id": job["input_id"],
+        "input_file": job["input_file_display"],
+        "pulse_source": job["pulse_source"],
+        "crossbar_dimension": job["crossbar_dimension"],
+        "max_bl": job["max_bl"],
+        "architecture": job["architecture"],
+        "rng_family": job["rng_family"],
+    }
+
+
+def main():
     options = args()
     options.output_dir.mkdir(parents=True, exist_ok=True)
-    trace_stats = read_key_values(options.trace_stats)
-    statuses = read_status(options.run_status)
+    try:
+        plan = json.loads(options.plan.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"ERROR: cannot read experiment plan: {exc}") from exc
+    if plan.get("schema_version") != 1:
+        raise SystemExit("ERROR: unsupported experiment plan schema")
 
-    synth_rows = [parse_synthesis(options.synth_root, arch, options.target_period_ns) | {"architecture": arch} for arch in options.architectures]
-    baseline_area = next((row.get("total_cell_area_um2") for row in synth_rows if row["architecture"] == options.baseline), None)
+    inputs = plan.get("inputs", [])
+    jobs = plan.get("jobs", [])
+    statuses = read_status(options.run_status)
+    trace_stats = {
+        item["id"]: read_key_values(
+            options.work_dir / item["id"] / "trace_stats.csv"
+        )
+        for item in inputs
+    }
+
+    synth_rows = []
+    for job in jobs:
+        if not job["run_synthesis"]:
+            continue
+        row = parse_synthesis(
+            options.synth_root, job["input_id"], job["architecture"],
+            options.target_period_ns,
+        )
+        row.update(job_common(job))
+        synth_rows.append(row)
+
+    baseline_area = {
+        (job["input_id"]): next(
+            (
+                row.get("total_cell_area_um2") for row in synth_rows
+                if row["input_id"] == job["input_id"]
+                and row["architecture"] == job["architecture"]
+                and row["synthesis_status"] == "PASS"
+            ),
+            None,
+        )
+        for job in jobs if job["run_synthesis"] and job["baseline"]
+    }
     for row in synth_rows:
         area = row.get("total_cell_area_um2")
-        row["normalized_area_vs_baseline"] = area / baseline_area if area and baseline_area else None
+        base = baseline_area.get(row["input_id"])
+        row["normalized_area_vs_baseline"] = area / base if area and base else None
 
-    latency_rows: list[dict[str, object]] = []
-    for arch in options.architectures:
-        for pulse in options.pulse_times:
-            row = parse_simulation(options.per_update_dir / f"{arch}_{pulse}ns.csv")
-            row.update({"architecture": arch, "pulse_time_ns": pulse})
-            if statuses.get(("simulation", arch, str(pulse))) != "PASS":
+    latency_rows = []
+    for job in jobs:
+        if not job["run_testbench"]:
+            continue
+        for pulse in job["pulse_times_ns"]:
+            row = parse_simulation(
+                options.per_update_dir / job["input_id"] /
+                f"{job['architecture']}_{pulse}ns.csv"
+            )
+            row.update(job_common(job))
+            row["pulse_time_ns"] = pulse
+            if statuses.get(
+                ("simulation", job["input_id"], job["architecture"], str(pulse))
+            ) != "PASS":
                 row["simulation_status"] = "FAIL"
             latency_rows.append(row)
 
     baseline_latency = {
-        row["pulse_time_ns"]: row.get("mean_latency_ns")
-        for row in latency_rows if row["architecture"] == options.baseline
+        (row["input_id"], row["pulse_time_ns"]): row.get("mean_latency_ns")
+        for row in latency_rows
+        if row["simulation_status"] == "PASS" and any(
+            job["input_id"] == row["input_id"]
+            and job["architecture"] == row["architecture"]
+            and job["baseline"]
+            for job in jobs
+        )
     }
     for row in latency_rows:
-        base = baseline_latency.get(row["pulse_time_ns"])
+        base = baseline_latency.get((row["input_id"], row["pulse_time_ns"]))
         mean = row.get("mean_latency_ns")
         row["relative_latency_saving"] = 1.0 - mean / base if base and mean else None
         row["speedup"] = base / mean if base and mean else None
 
-    synth_by_arch = {row["architecture"]: row for row in synth_rows}
-    summary_rows = [row | synth_by_arch[row["architecture"]] for row in latency_rows]
+    energy_rows = []
+    for job in jobs:
+        if not (job["run_testbench"] and job["run_synthesis"]):
+            continue
+        stats = trace_stats.get(job["input_id"], {})
+        for pulse in job["pulse_times_ns"]:
+            row = parse_energy(
+                options.synth_root, job["input_id"], job["architecture"],
+                pulse, stats,
+            )
+            row.update(job_common(job))
+            row["pulse_time_ns"] = pulse
+            if statuses.get(
+                ("simulation", job["input_id"], job["architecture"], str(pulse))
+            ) != "PASS":
+                row["energy_status"] = "FAIL"
+                if not row.get("power_error"):
+                    row["power_error"] = "simulation_stage_failed"
+            energy_rows.append(row)
 
-    latency_fields = [
-        "architecture", "pulse_time_ns", "updates", "mean_input_bl",
+    synth_by_job = {
+        (row["input_id"], row["architecture"]): row for row in synth_rows
+    }
+    energy_by_job = {
+        (row["input_id"], row["architecture"], row["pulse_time_ns"]): row
+        for row in energy_rows
+    }
+    summary_rows = []
+    for row in latency_rows:
+        summary_row = dict(row)
+        synth_row = synth_by_job.get((row["input_id"], row["architecture"]), {})
+        summary_row.update({
+            key: value for key, value in synth_row.items()
+            if key not in summary_row
+        })
+        energy_row = energy_by_job.get(
+            (row["input_id"], row["architecture"], row["pulse_time_ns"]), {}
+        )
+        summary_row.update({
+            key: value for key, value in energy_row.items()
+            if key not in summary_row
+        })
+        summary_rows.append(summary_row)
+
+    common_fields = [
+        "input_id", "input_file", "pulse_source", "crossbar_dimension", "max_bl",
+        "architecture", "rng_family",
+    ]
+    latency_fields = common_fields + [
+        "pulse_time_ns", "updates", "mean_input_bl",
         "mean_output_pulse_positions", "pulse_position_reduction",
         "mean_latency_ns", "median_latency_ns", "std_latency_ns",
         "p95_latency_ns", "relative_latency_saving", "speedup",
         "simulation_status", "errors", "group_mask_bypass_updates",
     ]
-    synth_fields = [
-        "architecture", "total_cell_area_um2", "normalized_area_vs_baseline",
-        "cell_count", "combinational_area_um2", "sequential_area_um2",
-        "target_period_ns", "worst_setup_slack_ns", "setup_violation_count",
+    synth_metric_fields = [
+        "total_cell_area_um2", "normalized_area_vs_baseline", "cell_count",
+        "combinational_area_um2", "sequential_area_um2", "target_period_ns",
+        "worst_setup_slack_ns", "setup_violation_count",
         "estimated_min_period_ns", "estimated_fmax_mhz", "setup_status",
         "drc_status", "drc_violation_count", "worst_hold_slack_ns",
         "hold_advisory", "synthesis_status",
     ]
+    synth_fields = common_fields + synth_metric_fields
+    energy_metric_fields = [
+        "pulse_time_ns", "power_mw", "dynamic_power_mw", "leakage_power_mw",
+        "tb_energy_nj", "energy_per_pulse_pj", "total_pulses",
+        "saif_duration_ns", "annotated_percent", "power_error", "energy_status",
+    ]
+    energy_fields = common_fields + energy_metric_fields
     write_csv(options.output_dir / "latency.csv", latency_rows, latency_fields)
     write_csv(options.output_dir / "synthesis.csv", synth_rows, synth_fields)
-    write_csv(options.output_dir / "summary.csv", summary_rows, latency_fields + synth_fields[1:])
+    write_csv(options.output_dir / "energy.csv", energy_rows, energy_fields, digits=6)
+    write_csv(
+        options.output_dir / "summary.csv", summary_rows,
+        latency_fields + synth_metric_fields + [
+            field for field in energy_metric_fields if field not in latency_fields
+        ],
+    )
 
-    latency_md_fields = [
-        "architecture", "pulse_time_ns", "mean_latency_ns", "median_latency_ns",
-        "p95_latency_ns", "std_latency_ns", "relative_latency_saving",
-        "mean_output_pulse_positions", "pulse_position_reduction",
-    ]
-    synth_md_fields = [
-        "architecture", "total_cell_area_um2", "normalized_area_vs_baseline",
-        "estimated_fmax_mhz", "target_period_ns", "setup_status",
-        "drc_status", "hold_advisory",
-    ]
+    input_report_rows = []
+    for item in inputs:
+        stats = trace_stats.get(item["id"], {})
+        input_report_rows.append({
+            "id": item["id"],
+            "file": item["file_display"],
+            "source": item["pulse_source"],
+            "dimension": item["crossbar_dimension"],
+            "max_bl": item["max_bl"],
+            "updates": stats.get("updates", ""),
+            "observed_bl": (
+                f"{stats.get('min_bl', '?')}/{float(stats['mean_bl']):.3f}/"
+                f"{stats.get('median_bl', '?')}/{stats.get('max_observed_bl', '?')}"
+                if stats.get("mean_bl") else ""
+            ),
+            "pulse_times": ", ".join(str(value) for value in item["pulse_times_ns"]),
+        })
+
+    job_report_rows = [{
+        "input_id": job["input_id"],
+        "architecture": job["architecture"],
+        "rng_family": job["rng_family"],
+        "testbench": "yes" if job["run_testbench"] else "no",
+        "synthesis": "yes" if job["run_synthesis"] else "no",
+        "baseline": "yes" if job["baseline"] else "no",
+    } for job in jobs]
+
+    failed = any(
+        statuses.get(("trace", item["id"], "", "")) != "PASS" for item in inputs
+    )
+    failed |= any(row["simulation_status"] != "PASS" for row in latency_rows)
+    failed |= any(row["synthesis_status"] != "PASS" for row in synth_rows)
+    failed |= any(row["energy_status"] != "PASS" for row in energy_rows)
+    execution_rows = []
+    for stage in ("trace", "compile", "simulation", "synthesis", "power"):
+        if stage == "synthesis":
+            values = [row["synthesis_status"] for row in synth_rows]
+        elif stage == "power":
+            values = [row["energy_status"] for row in energy_rows]
+        else:
+            values = [value for key, value in statuses.items() if key[0] == stage]
+        if values:
+            execution_rows.append({
+                "stage": stage,
+                "pass": values.count("PASS"),
+                "fail": values.count("FAIL"),
+                "skip": values.count("SKIP"),
+            })
+
     report = [
-        "# Experiment Summary", "", "## Experiment Configuration", "",
-        f"- Trace: `{options.trace}`",
-        f"- Recorded updates: {trace_stats['updates']}",
-        f"- Crossbar dimension: {options.dimension}",
-        f"- MAX_BL: {options.max_bl}",
+        "# Experiment Summary", "", "## Global Configuration", "",
+        f"- Overall result: **{'FAIL' if failed else 'PASS'}**",
         f"- Digital clock: {options.clock_ns:g} ns ({1000.0 / options.clock_ns:g} MHz)",
-        f"- Pulse-time sweep: {', '.join(str(v) + ' ns' for v in options.pulse_times)}",
-        f"- Baseline architecture: `{options.baseline}`",
-        f"- LFSR seed: `{options.seed}`", "",
-        f"Input BL min/mean/median/max: {trace_stats['min_bl']} / {float(trace_stats['mean_bl']):.3f} / {float(trace_stats['median_bl']):.3f} / {trace_stats['max_observed_bl']}",
+        f"- LFSR seed: `{options.seed}`",
+        f"- Synthesis target: {options.target_period_ns:g} ns",
+        "", "## Execution Status", "",
+        *markdown_table(
+            ["stage", "pass", "fail", "skip"],
+            ["Stage", "PASS", "FAIL", "SKIP"],
+            execution_rows,
+        ),
+        "", "## Inputs", "",
+        *markdown_table(
+            ["id", "file", "source", "dimension", "max_bl", "updates", "observed_bl", "pulse_times"],
+            ["Input", "File", "Pulse source", "Dimension", "Configured MAX_BL", "Updates", "BL min/mean/median/max", "Pulse times ns"],
+            input_report_rows,
+        ),
+        "", "## Selected Jobs", "",
+        *markdown_table(
+            ["input_id", "architecture", "rng_family", "testbench", "synthesis", "baseline"],
+            ["Input", "Architecture", "RNG family", "Testbench", "Synthesis", "Baseline"],
+            job_report_rows,
+        ),
         "", "## System Latency", "",
-        *markdown_table(latency_md_fields,
-            ["Architecture", "T_pulse ns", "Mean ns", "Median ns", "P95 ns", "Std ns", "Saving", "Mean BLout", "Reduction"], latency_rows),
+        *markdown_table(
+            [
+                "input_id", "architecture", "pulse_time_ns", "mean_latency_ns",
+                "median_latency_ns", "p95_latency_ns", "std_latency_ns",
+                "relative_latency_saving", "mean_output_pulse_positions",
+                "pulse_position_reduction",
+            ],
+            [
+                "Input", "Architecture", "T_pulse ns", "Mean ns", "Median ns",
+                "P95 ns", "Std ns", "Saving", "Mean BLout", "Reduction",
+            ],
+            latency_rows,
+        ),
+        "", "## Energy",
+        "",
+        "Power is average total power over the SAIF window of the replay testbench, at the 100 MHz digital clock. TB energy is Power × SAIF duration. Energy/pulse divides that energy by the number of asserted X and D pulses in CUSTOM/input.",
+        "",
+        *markdown_table(
+            [
+                "input_id", "architecture", "pulse_time_ns", "power_mw",
+                "tb_energy_nj", "energy_per_pulse_pj", "total_pulses",
+                "energy_status", "power_error",
+            ],
+            [
+                "Input", "Architecture", "T_pulse ns", "Power mW",
+                "TB energy nJ", "Energy/pulse pJ", "Pulses", "Stage", "Error",
+            ],
+            energy_rows,
+        ),
         "", "## Synthesis", "",
-        "Area is post-synthesis standard-cell area. Fmax is reported only when setup and transition/capacitance DRC qualify.", "",
-        *markdown_table(synth_md_fields,
-            ["Architecture", "Area um2", "Area/base", "Fmax est. MHz", "Target ns", "Setup", "DRC", "Hold advisory"], synth_rows),
+        "Area is post-synthesis standard-cell area. Fmax is reported only when setup and transition/capacitance DRC qualify.",
+        "",
+        *markdown_table(
+            [
+                "input_id", "architecture", "total_cell_area_um2",
+                "normalized_area_vs_baseline", "estimated_fmax_mhz",
+                "target_period_ns", "setup_status", "drc_status",
+                "hold_advisory", "synthesis_status",
+            ],
+            [
+                "Input", "Architecture", "Area um2", "Area/base", "Fmax est. MHz",
+                "Target ns", "Setup", "DRC", "Hold advisory", "Stage",
+            ],
+            synth_rows,
+        ),
         "", "## Validation", "",
-        "| Architecture | Pulse ns | Simulation | Updates | Errors | Group-mask bypass updates |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| Input | Architecture | Pulse ns | Simulation | Updates | Errors | Group-mask bypass updates |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     report.extend(
-        f"| {row['architecture']} | {row['pulse_time_ns']} | {row['simulation_status']} | {row['updates']} | {row['errors']} | {row['group_mask_bypass_updates']} |"
+        f"| {row['input_id']} | {row['architecture']} | {row['pulse_time_ns']} | "
+        f"{row['simulation_status']} | {row['updates']} | {row['errors']} | "
+        f"{row['group_mask_bypass_updates']} |"
         for row in latency_rows
     )
-    (options.output_dir / "summary.md").write_text("\n".join(report) + "\n", encoding="utf-8")
+    (options.output_dir / "summary.md").write_text(
+        "\n".join(report) + "\n", encoding="utf-8"
+    )
 
-    print("\nArchitecture                     Pulse(ns) Updates   Mean(ns)    P95(ns)   Saving   Mean BLout")
+    print("\nInput              Architecture                     Pulse(ns) Updates   Mean(ns)    P95(ns)   Saving")
     for row in latency_rows:
         saving = row.get("relative_latency_saving")
-        print(f"{row['architecture']:<32} {row['pulse_time_ns']:>9} {row['updates']:>7} "
-              f"{fmt(row.get('mean_latency_ns')):>10} {fmt(row.get('p95_latency_ns')):>10} "
-              f"{(f'{100*saving:.1f}%' if isinstance(saving, float) else '-'):>8} "
-              f"{fmt(row.get('mean_output_pulse_positions')):>10}")
-    print("\nArchitecture                     Area um2   Fmax est MHz   Setup       DRC")
+        print(
+            f"{row['input_id']:<18} {row['architecture']:<32} "
+            f"{row['pulse_time_ns']:>9} {row['updates']:>7} "
+            f"{fmt(row.get('mean_latency_ns')):>10} {fmt(row.get('p95_latency_ns')):>10} "
+            f"{(f'{100*saving:.1f}%' if isinstance(saving, float) else '-'):>8}"
+        )
+    print("\nInput              Architecture                     Area um2   Fmax est MHz   Stage")
     for row in synth_rows:
-        print(f"{row['architecture']:<32} {fmt(row.get('total_cell_area_um2')):>10} "
-              f"{fmt(row.get('estimated_fmax_mhz')):>14} {row['setup_status']:>9} {row['drc_status']:>9}")
+        print(
+            f"{row['input_id']:<18} {row['architecture']:<32} "
+            f"{fmt(row.get('total_cell_area_um2')):>10} "
+            f"{fmt(row.get('estimated_fmax_mhz')):>14} "
+            f"{row['synthesis_status']:>9}"
+        )
+    print("\nInput              Architecture                     Pulse(ns)  Power(mW)  TB energy(nJ)  Energy/pulse(pJ)   Stage  Error")
+    for row in energy_rows:
+        print(
+            f"{row['input_id']:<18} {row['architecture']:<32} "
+            f"{row['pulse_time_ns']:>9} "
+            f"{fmt(row.get('power_mw'), 4):>10} "
+            f"{fmt(row.get('tb_energy_nj'), 4):>13} "
+            f"{fmt(row.get('energy_per_pulse_pj'), 4):>16} "
+            f"{row['energy_status']:>7}  {row.get('power_error', '')}"
+        )
 
-    failed = any(row["simulation_status"] != "PASS" for row in latency_rows)
-    failed |= any(statuses.get(("synthesis", arch, "")) != "PASS" for arch in options.architectures)
-    failed |= any(row.get("synthesis_status") != "PASS" for row in synth_rows)
     return 1 if failed else 0
 
 

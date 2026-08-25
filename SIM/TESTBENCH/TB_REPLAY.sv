@@ -54,6 +54,33 @@ module TB_REPLAY #(
 
     always #(DIGITAL_CLOCK_NS / 2.0) CLK = ~CLK;
 
+    integer saif_enable;
+    integer saif_active;
+    string saif_path;
+
+    task saif_begin;
+        begin
+            if (saif_enable && !saif_active) begin
+                $set_toggle_region(dut);
+                @(posedge CLK);
+                $toggle_start;
+                saif_active = 1;
+            end
+        end
+    endtask
+
+    task saif_end;
+        begin
+            if (saif_active) begin
+                $toggle_stop;
+                // VCS $toggle_report requires a string literal filename.
+                $toggle_report("tb.saif", 1.0e-9, "TB_REPLAY.dut");
+                $display("SAIF: wrote tb.saif at time %0t", $time);
+                saif_active = 0;
+            end
+        end
+    endtask
+
     integer t_pulse_ns;
     reg device_busy;
     realtime device_completion_target;
@@ -326,7 +353,6 @@ module TB_REPLAY #(
         integer drive_position;
         begin
             clear_update_metrics();
-            update_active = 1'b1;
             drive_position = 0;
 
             @(negedge CLK);
@@ -334,6 +360,7 @@ module TB_REPLAY #(
             X_RAW_PULSES_IN = trace_x_frame[0];
             D_RAW_PULSES_IN = trace_d_frame[0];
             INPUT_VALID = 1'b1;
+            update_active = 1'b1;
 
             while (drive_position < update_bl) begin
                 @(posedge CLK);
@@ -484,6 +511,10 @@ module TB_REPLAY #(
         expect_sort = 0;
         expect_zero_delete = 0;
         expect_baseline = 0;
+        saif_enable = 0;
+        saif_active = 0;
+        saif_path = "";
+        saif_enable = $value$plusargs("SAIF_FILE=%s", saif_path);
 
         if (!$value$plusargs("TRACE_FILE=%s", trace_path)) begin
             $display("ERROR: +TRACE_FILE is required");
@@ -528,6 +559,7 @@ module TB_REPLAY #(
         repeat (4) @(posedge CLK);
         RST = 1'b1;
         repeat (2) @(posedge CLK);
+        saif_begin;
 
         for (update_ordinal = 0; update_ordinal < trace_updates;
              update_ordinal = update_ordinal + 1) begin
@@ -537,6 +569,7 @@ module TB_REPLAY #(
                                   row_x, row_d);
             if (scan_status != 8) begin
                 $display("ERROR: missing first row for update ordinal %0d", update_ordinal);
+                saif_end;
                 $finish(2);
             end
             update_id = row_update_id;
@@ -579,10 +612,12 @@ module TB_REPLAY #(
             $display("RESULT: FAIL architecture=%0s updates=%0d/%0d errors=%0d bypass=%0d",
                      architecture_name, processed_updates, trace_updates,
                      total_errors, group_mask_bypass_count);
+            saif_end;
             $finish(1);
         end
         $display("RESULT: PASS architecture=%0s updates=%0d errors=0 bypass=%0d",
                  architecture_name, processed_updates, group_mask_bypass_count);
+        saif_end;
         $finish(0);
     end
 endmodule

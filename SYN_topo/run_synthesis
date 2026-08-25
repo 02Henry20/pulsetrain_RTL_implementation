@@ -1,7 +1,7 @@
 #!/bin/tcsh -f
 
-if ($#argv != 1) then
-    echo "Usage: $0 <architecture>"
+if ($#argv < 1 || $#argv > 2) then
+    echo "Usage: $0 <architecture> [input_id]"
     exit 1
 endif
 
@@ -9,19 +9,33 @@ set SCRIPT_DIR = `dirname "$0"`
 set SYNTH_DIR = `cd "${SCRIPT_DIR}" && pwd`
 set PROJECT_ROOT = `cd "${SYNTH_DIR}/.." && pwd`
 set SELECTED_ARCH = "$argv[1]"
+echo "${SELECTED_ARCH}" | grep -qE '^[a-z0-9_]+$'
+if ($status != 0) then
+    echo "ERROR: architecture must match [a-z0-9_]+"
+    exit 1
+endif
+set INPUT_ID = "default"
+if ($#argv == 2) then
+    set INPUT_ID = "$argv[2]"
+endif
+echo "${INPUT_ID}" | grep -qE '^[a-z0-9_]+$'
+if ($status != 0) then
+    echo "ERROR: input_id must match [a-z0-9_]+"
+    exit 1
+endif
 set FILELIST = "${PROJECT_ROOT}/SIM/FUNCTION/filelists/${SELECTED_ARCH}.f"
-set RUN_DIR = "${SYNTH_DIR}/runs/${SELECTED_ARCH}/no_saif"
+set RUN_DIR = "${SYNTH_DIR}/runs/${INPUT_ID}/${SELECTED_ARCH}/no_saif"
 set LOG_DIR = "${RUN_DIR}/logs"
 set REPORTS_DIR = "${RUN_DIR}/reports"
 set RESULTS_DIR = "${RUN_DIR}/results"
 set LOG_FILE = "${LOG_DIR}/all.log"
-set MW_LIB_NAME = "MY_DESIGN_LIB_${SELECTED_ARCH}_no_saif"
+set MW_LIB_NAME = "MY_DESIGN_LIB_${INPUT_ID}_${SELECTED_ARCH}_no_saif"
 set PRECOMPILE_HIERARCHY_REPORT = "${REPORTS_DIR}/precompile_hierarchy.rpt"
 
 if (! $?SYNTH_TARGET_PERIOD_NS) then
     setenv SYNTH_TARGET_PERIOD_NS "3"
 endif
-echo "${SYNTH_TARGET_PERIOD_NS}" | awk '$0 ~ /^[0-9]+([.][0-9]+)?$/ && ($0 + 0) > 0 { valid=1 } END { exit !valid }'
+echo "${SYNTH_TARGET_PERIOD_NS}" | awk '$0 ~ /^[0-9]+([.][0-9]+)?$/ && ($0 + 0) > 0 { valid=1 } END { exit (valid ? 0 : 1) }'
 if ($status != 0) then
     echo "ERROR: SYNTH_TARGET_PERIOD_NS must be a positive number"
     exit 1
@@ -44,9 +58,10 @@ mkdir -p "${LOG_DIR}" "${REPORTS_DIR}" "${RESULTS_DIR}"
 rm -rf WORK "${MW_LIB_NAME}"
 
 setenv SYNTH_ARCH "${SELECTED_ARCH}"
+setenv SYNTH_INPUT_ID "${INPUT_ID}"
 setenv SYNTH_RUN_LABEL "no_saif"
 unsetenv SAIF_FILE
-unsetenv SAIF_INSTANCE
+# Do not unset SAIF_INSTANCE / POWER_SAIF_LIST; they are used after compile.
 
 dc_shell -topo -f script/dc.tcl >&! "${LOG_FILE}"
 set DC_STATUS = $status
@@ -55,7 +70,11 @@ if (${DC_STATUS} != 0) then
     echo "ERROR: synthesis failed; see ${LOG_FILE}"
     exit ${DC_STATUS}
 endif
-grep -qE "^(Error:|RM-Error:)" "${LOG_FILE}"
+# dc_shell prints some caught power-command failures as top-level "Error:"
+# lines.  They invalidate the requested power point, not the mapped synthesis.
+# Continue treating errors before or after the marked power section as synthesis
+# failures, while run-level/per-point power status is handled below.
+awk '/^RM-Info: SS28 post-map power begin$/ { in_power=1; next } /^RM-Info: SS28 post-map power end$/ { in_power=0; next } in_power==0 && /^(Error:|RM-Error:)/ { found=1 } END { exit (found ? 0 : 1) }' "${LOG_FILE}"
 if ($status == 0) then
     echo "ERROR: synthesis completed with reported errors; see ${LOG_FILE}"
     exit 1
@@ -73,6 +92,15 @@ grep -qi "pulse_generator" "${PRECOMPILE_HIERARCHY_REPORT}"
 if ($status != 0) then
     echo "ERROR: synthesized configuration lacks pulse-generator hierarchy"
     exit 1
+endif
+
+# Keep synthesis QoR distinct from post-map power.  Exit 2 means the mapped
+# design and its area/timing reports are valid, but one or more requested SAIF
+# power points failed.  CUSTOM/run_all.sh records those points separately.
+grep -q '^RM-Power-Error:' "${LOG_FILE}"
+if ($status == 0) then
+    echo "POWER_FAIL: mapped synthesis completed, but SAIF power analysis failed; see ${LOG_FILE}"
+    exit 2
 endif
 
 echo "PASS: synthesis ${SELECTED_ARCH}"

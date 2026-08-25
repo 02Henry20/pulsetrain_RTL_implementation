@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Validate realized binary AIHWKIT pulse trains and pack them losslessly."""
 
-from __future__ import annotations
-
 import argparse
 import csv
 import math
@@ -14,7 +12,7 @@ from pathlib import Path
 OPTIONAL_METADATA = {"x_size", "d_size", "tile_index"}
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("input_csv", type=Path)
     parser.add_argument("output_trace", type=Path)
@@ -24,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def decimal_integer(text: str, row_number: int, column: str) -> int:
+def decimal_integer(text, row_number, column):
     try:
         return int(text.strip(), 10)
     except (AttributeError, ValueError) as exc:
@@ -33,7 +31,7 @@ def decimal_integer(text: str, row_number: int, column: str) -> int:
         ) from exc
 
 
-def bit_value(text: str, row_number: int, column: str) -> int:
+def bit_value(text, row_number, column):
     try:
         value = text.strip()
     except AttributeError as exc:
@@ -47,8 +45,8 @@ def bit_value(text: str, row_number: int, column: str) -> int:
     return int(value)
 
 
-def indexed_columns(header: list[str], prefix: str) -> list[str]:
-    matches: list[tuple[int, str]] = []
+def indexed_columns(header, prefix):
+    matches = []
     pattern = re.compile(rf"{prefix}([0-9]+)")
     for column in header:
         match = pattern.fullmatch(column)
@@ -63,14 +61,14 @@ def indexed_columns(header: list[str], prefix: str) -> list[str]:
     return [column for _, column in matches]
 
 
-def packed_bits(bits: list[int]) -> int:
+def packed_bits(bits):
     packed = 0
     for lane, value in enumerate(bits):
         packed |= value << lane
     return packed
 
 
-def main() -> int:
+def main():
     args = parse_args()
     if args.dimension <= 0:
         raise SystemExit("ERROR: --dimension must be positive")
@@ -79,9 +77,11 @@ def main() -> int:
     if not args.input_csv.is_file():
         raise SystemExit(f"ERROR: trace CSV not found: {args.input_csv}")
 
-    updates: OrderedDict[int, dict[str, object]] = OrderedDict()
-    previous_update_id: int | None = None
-    closed_updates: set[int] = set()
+    updates = OrderedDict()
+    previous_update_id = None
+    closed_updates = set()
+    x_pulse_count = 0
+    d_pulse_count = 0
 
     try:
         with args.input_csv.open(newline="", encoding="utf-8-sig") as handle:
@@ -165,6 +165,8 @@ def main() -> int:
                     raise ValueError(
                         f"row {row_number}: D lane beyond d_size={d_size} is active"
                     )
+                x_pulse_count += sum(x_bits[:x_size])
+                d_pulse_count += sum(d_bits[:d_size])
                 x_bits.extend([0] * (args.dimension - len(x_bits)))
                 d_bits.extend([0] * (args.dimension - len(d_bits)))
 
@@ -238,10 +240,13 @@ def main() -> int:
         "trace_filename": args.input_csv.name,
         "updates": len(updates),
         "pulse_positions": total_positions,
+        "x_pulses": x_pulse_count,
+        "d_pulses": d_pulse_count,
+        "total_pulses": x_pulse_count + d_pulse_count,
         "dimension": args.dimension,
         "max_bl": args.max_bl,
         "min_bl": min(bl_values),
-        "mean_bl": statistics.fmean(bl_values),
+        "mean_bl": statistics.mean(bl_values),
         "median_bl": statistics.median(bl_values),
         "max_observed_bl": max(bl_values),
         "min_x_size": min(x_sizes),
@@ -259,7 +264,7 @@ def main() -> int:
         "Trace: "
         f"{len(updates)} updates, {total_positions} realized pulse positions, "
         f"dimension={args.dimension}, BL min/mean/median/max="
-        f"{min(bl_values)}/{statistics.fmean(bl_values):.3f}/"
+        f"{min(bl_values)}/{statistics.mean(bl_values):.3f}/"
         f"{statistics.median(bl_values):.3f}/{max(bl_values)}"
     )
     return 0
