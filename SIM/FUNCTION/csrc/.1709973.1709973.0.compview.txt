@@ -1,9 +1,0 @@
-{"vcs1":{"timestamp_begin":1787476837.063386758, "rt":0.34, "ut":0.15, "st":0.12}}
-{"vcselab":{"timestamp_begin":1787476837.486128890, "rt":0.17, "ut":0.11, "st":0.03}}
-{"link":{"timestamp_begin":1787476837.715487389, "rt":0.19, "ut":0.08, "st":0.11}}
-{"SNPS_VCS_INTERNAL_ROOT_START_TIME": 1787476836.732158200}
-{"VCS_COMP_START_TIME": 1787476836.732158200}
-{"VCS_COMP_END_TIME": 1787476837.975999053}
-{"VCS_USER_OPTIONS": "-full64 -sverilog -timescale=1ns/1ps -top TB_REPLAY -f filelists/baseline.f ../TESTBENCH/TB_REPLAY.sv -pvalue+TB_REPLAY.CROSSBAR_DIMENSION=64 -pvalue+TB_REPLAY.MAX_BL=6 -pvalue+TB_REPLAY.STOCHASTIC_VALUE_WIDTH=16 -pvalue+TB_REPLAY.OUTPUT_BUFFER_DEPTH=6 -pvalue+TB_REPLAY.DIGITAL_CLOCK_NS=10 -pvalue+TB_REPLAY.LFSR_SEED=44257 -o /home/henry/SS28_SCRIPT/CUSTOM/work/data8_1e_04/simulation/baseline/simv"}
-{"vcs1": {"peak_mem": 309812}}
-{"vcselab": {"peak_mem": 158228}}

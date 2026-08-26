@@ -34,3 +34,5 @@ AGENTS.md
 /.agents
 /SIM/FUNCTION/csrc/
 *.csv
+/.cursor/
+/CUSTOM/input/

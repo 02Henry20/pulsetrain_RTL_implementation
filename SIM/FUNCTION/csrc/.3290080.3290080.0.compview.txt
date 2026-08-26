@@ -1,9 +1,0 @@
-{"vcs1":{"timestamp_begin":1787496346.428481154, "rt":0.50, "ut":0.32, "st":0.14}}
-{"vcselab":{"timestamp_begin":1787496347.011985122, "rt":0.23, "ut":0.15, "st":0.07}}
-{"link":{"timestamp_begin":1787496347.293220456, "rt":0.18, "ut":0.11, "st":0.08}}
-{"SNPS_VCS_INTERNAL_ROOT_START_TIME": 1787496346.012318156}
-{"VCS_COMP_START_TIME": 1787496346.012318156}
-{"VCS_COMP_END_TIME": 1787496347.594664640}
-{"VCS_USER_OPTIONS": "-full64 -sverilog -timescale=1ns/1ps -top TB_REPLAY -f filelists/sort_zero_delete_group_mask.f ../TESTBENCH/TB_REPLAY.sv -pvalue+TB_REPLAY.CROSSBAR_DIMENSION=64 -pvalue+TB_REPLAY.MAX_BL=6 -pvalue+TB_REPLAY.STOCHASTIC_VALUE_WIDTH=16 -pvalue+TB_REPLAY.OUTPUT_BUFFER_DEPTH=6 -pvalue+TB_REPLAY.DIGITAL_CLOCK_NS=10 -pvalue+TB_REPLAY.LFSR_SEED=44257 -debug_access+r -o /home/henry/SS28_SCRIPT/CUSTOM/work/data8_1e_04/simulation/sort_zero_delete_group_mask/simv"}
-{"vcs1": {"peak_mem": 312816}}
-{"vcselab": {"peak_mem": 174712}}
