@@ -4,20 +4,20 @@ ifeq ($(LDVERSION), 0)
 endif
 
 ARCHIVE_OBJS=
-ARCHIVE_OBJS += _238809_archive_1.so
-_238809_archive_1.so : archive.172/_238809_archive_1.a
+ARCHIVE_OBJS += _1236072_archive_1.so
+_1236072_archive_1.so : archive.191/_1236072_archive_1.a
 	@$(AR) -s $<
-	@$(PIC_LD) -shared  -Bsymbolic $(LD_NORELAX_FLAG)  -o .//../../../CUSTOM/work/data8_1e_05_shared/simulation/lfsr_sort_zero_delete_group_mask/simv.daidir//_238809_archive_1.so --whole-archive $< --no-whole-archive
+	@$(PIC_LD) -shared  -Bsymbolic $(LD_NORELAX_FLAG)  -o .//../../../CUSTOM/work/data8_1e_05_shared/simulation/lfsr_sort_zero_delete/simv.daidir//_1236072_archive_1.so --whole-archive $< --no-whole-archive
 	@rm -f $@
-	@ln -sf .//../../../CUSTOM/work/data8_1e_05_shared/simulation/lfsr_sort_zero_delete_group_mask/simv.daidir//_238809_archive_1.so $@
+	@ln -sf .//../../../CUSTOM/work/data8_1e_05_shared/simulation/lfsr_sort_zero_delete/simv.daidir//_1236072_archive_1.so $@
 
 
 ARCHIVE_OBJS += _prev_archive_1.so
-_prev_archive_1.so : archive.172/_prev_archive_1.a
+_prev_archive_1.so : archive.191/_prev_archive_1.a
 	@$(AR) -s $<
-	@$(PIC_LD) -shared  -Bsymbolic $(LD_NORELAX_FLAG)  -o .//../../../CUSTOM/work/data8_1e_05_shared/simulation/lfsr_sort_zero_delete_group_mask/simv.daidir//_prev_archive_1.so --whole-archive $< --no-whole-archive
+	@$(PIC_LD) -shared  -Bsymbolic $(LD_NORELAX_FLAG)  -o .//../../../CUSTOM/work/data8_1e_05_shared/simulation/lfsr_sort_zero_delete/simv.daidir//_prev_archive_1.so --whole-archive $< --no-whole-archive
 	@rm -f $@
-	@ln -sf .//../../../CUSTOM/work/data8_1e_05_shared/simulation/lfsr_sort_zero_delete_group_mask/simv.daidir//_prev_archive_1.so $@
+	@ln -sf .//../../../CUSTOM/work/data8_1e_05_shared/simulation/lfsr_sort_zero_delete/simv.daidir//_prev_archive_1.so $@
 
 
 

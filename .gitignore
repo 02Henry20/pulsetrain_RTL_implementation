@@ -32,3 +32,5 @@ AGENTS.md
 /.gitattributes
 /graphify-out
 /.agents
+/SIM/FUNCTION/csrc/
+*.csv

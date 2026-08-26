@@ -262,6 +262,29 @@ def parse_clock_gating(reports):
         parsed["icg_cell_area_um2"] = float(area) if area not in (None, "") else None
     except (TypeError, ValueError):
         parsed["icg_cell_area_um2"] = None
+    rng = read_key_values(reports / "rng_clock_gating.summary.csv")
+    if rng:
+        values.update(rng)
+    parsed["rng_registers_total"] = None
+    parsed["rng_registers_gated"] = None
+    parsed["rng_registers_ungated"] = None
+    parsed["rng_gating_percent"] = None
+    parsed["rng_icg_cells"] = None
+    parsed["rng_icg_ref_names"] = values.get("rng_icg_ref_names") or None
+    parsed["rng_clock_gating_status"] = values.get("rng_clock_gating_status") or None
+    try:
+        for key in (
+            "rng_registers_total", "rng_registers_gated",
+            "rng_registers_ungated", "rng_icg_cells",
+        ):
+            raw = values.get(key)
+            parsed[key] = int(float(raw)) if raw not in (None, "") else None
+        pct = values.get("rng_gating_percent")
+        parsed["rng_gating_percent"] = (
+            float(pct) if pct not in (None, "") else None
+        )
+    except (TypeError, ValueError):
+        pass
     total = (parsed["gated_registers"] or 0) + (parsed["ungated_registers"] or 0)
     if parsed["gated_registers"] is not None and total > 0:
         parsed["gated_register_percent"] = 100.0 * parsed["gated_registers"] / total
@@ -278,7 +301,7 @@ def parse_power_summary(path):
         "cell_internal_power_w", "net_switching_power_w", "dynamic_power_w",
         "leakage_power_w", "total_power_w", "annotated_percent",
         "lfsr_registers_total", "lfsr_registers_toggle_nonzero",
-        "lfsr_registers_default_zero",
+        "lfsr_registers_annotated", "lfsr_registers_default_zero",
     ):
         if key in parsed and parsed[key] != "":
             try:
@@ -301,6 +324,7 @@ def parse_energy(root, input_id, architecture, pulse, stats):
         "source_fire_count": None, "source_fire_duty": None,
         "saif_clk_cycles": None, "rng_gated_cycles": None,
         "lfsr_registers_total": None, "lfsr_registers_toggle_nonzero": None,
+        "lfsr_registers_annotated": None,
     }
     try:
         total_pulses = int(float(stats.get("total_pulses", 0)))
@@ -332,10 +356,12 @@ def parse_energy(root, input_id, architecture, pulse, stats):
         dynamic_w is not None and math.isfinite(dynamic_w) and
         leakage_w is not None and math.isfinite(leakage_w)
     )
+    if values.get("status") != "PASS":
+        failed["power_error"] = values.get("error") or "power_summary_failed"
+        return failed
     if not numbers_ok:
         failed["power_error"] = values.get("error") or (
-            "power_summary_failed" if values.get("status") != "PASS"
-            else "invalid_power_duration_or_pulse_count"
+            "invalid_power_duration_or_pulse_count"
         )
         return failed
     energy_j = total_w * duration_ns * 1e-9
@@ -431,11 +457,15 @@ def parse_synthesis(root, input_id, architecture, target):
     )
     fmax = 1000.0 / estimated_period if qualified else None
     gating = parse_clock_gating(reports)
+    rng_total = gating.get("rng_registers_total")
+    rng_gated = gating.get("rng_registers_gated")
+    rng_ungated = gating.get("rng_registers_ungated")
     gating_ok = (
         gating.get("clock_gating_cells") is not None and
         gating["clock_gating_cells"] > 0 and
-        gating.get("gated_registers") is not None and
-        gating["gated_registers"] > 0
+        rng_total is not None and rng_total > 0 and
+        rng_gated is not None and rng_ungated is not None and
+        rng_ungated == 0 and rng_gated == rng_total
     )
 
     return {
@@ -614,6 +644,7 @@ def main():
                 "no_saif" / "reports" / "power" / f"{pulse}ns.rng_coverage.csv"
             )
             row["lfsr_registers_total"] = cov.get("lfsr_registers_total")
+            row["lfsr_registers_annotated"] = cov.get("lfsr_registers_annotated")
             row["lfsr_registers_toggle_nonzero"] = cov.get("lfsr_registers_toggle_nonzero")
             row["lfsr_registers_default_zero"] = cov.get("lfsr_registers_default_zero")
             row.update(job_common(job))
@@ -629,7 +660,9 @@ def main():
                  str(advances) != str(fires))
             )
             total_lfsr = row.get("lfsr_registers_total")
-            annotated_lfsr = row.get("lfsr_registers_toggle_nonzero")
+            annotated_lfsr = row.get("lfsr_registers_annotated")
+            if annotated_lfsr in (None, ""):
+                annotated_lfsr = row.get("lfsr_registers_toggle_nonzero")
             try:
                 lfsr_unannotated = (
                     total_lfsr is not None and float(total_lfsr) > 0 and
@@ -637,12 +670,32 @@ def main():
                 )
             except (TypeError, ValueError):
                 lfsr_unannotated = False
+            synth_status = statuses.get(
+                ("synthesis", job["input_id"], job["architecture"], "")
+            )
+            power_status = statuses.get(
+                ("power", job["input_id"], job["architecture"], str(pulse))
+            )
             if statuses.get(
                 ("simulation", job["input_id"], job["architecture"], str(pulse))
             ) != "PASS":
                 row["energy_status"] = "FAIL"
                 if not row.get("power_error"):
                     row["power_error"] = "simulation_stage_failed"
+            elif synth_status != "PASS":
+                row["energy_status"] = "FAIL"
+                if not row.get("power_error"):
+                    row["power_error"] = "synthesis_stage_failed"
+            elif power_status == "FAIL":
+                row["energy_status"] = "FAIL"
+                if not row.get("power_error"):
+                    row["power_error"] = "power_stage_failed"
+            elif power_status == "SKIP":
+                row["energy_status"] = "FAIL"
+                if not row.get("power_error"):
+                    row["power_error"] = "power_stage_skipped"
+            elif power_status == "PASS":
+                pass
             elif rng_failed:
                 row["energy_status"] = "FAIL"
                 if not row.get("power_error"):
@@ -697,6 +750,9 @@ def main():
         "hold_advisory", "synthesis_status",
         "clock_gating_cells", "gated_registers", "ungated_registers",
         "gated_register_percent", "icg_cell_area_um2", "icg_ref_names",
+        "rng_registers_total", "rng_registers_gated", "rng_registers_ungated",
+        "rng_gating_percent", "rng_icg_cells", "rng_icg_ref_names",
+        "rng_clock_gating_status",
     ]
     synth_fields = common_fields + synth_metric_fields
     energy_metric_fields = [
@@ -706,7 +762,8 @@ def main():
         "source_fire_count", "source_fire_duty", "saif_clk_cycles",
         "rng_gated_cycles", "lfsr_advances", "lfsr_seq_errors",
         "shared_delay_errors", "lfsr_registers_total",
-        "lfsr_registers_toggle_nonzero", "lfsr_registers_default_zero",
+        "lfsr_registers_annotated", "lfsr_registers_toggle_nonzero",
+        "lfsr_registers_default_zero",
         "annotated_percent", "power_error", "energy_status",
     ]
     energy_fields = common_fields + energy_metric_fields
@@ -815,7 +872,7 @@ def main():
             [
                 "input_id", "architecture", "pulse_time_ns", "power_mw",
                 "energy_per_update_nj", "tb_energy_nj", "energy_per_pulse_pj",
-                "source_fire_duty", "lfsr_registers_toggle_nonzero",
+                "source_fire_duty", "lfsr_registers_annotated",
                 "lfsr_registers_default_zero", "energy_status", "power_error",
             ],
             [
@@ -827,20 +884,21 @@ def main():
             energy_rows,
         ),
         "", "## Synthesis", "",
-        "Area is post-synthesis standard-cell area after inferred ICG insertion. Fmax is reported only when setup and transition/capacitance DRC qualify. Rows without clock-gating cells are FAIL.",
+        "Area is post-synthesis standard-cell area after inferred ICG insertion. Fmax is reported only when setup and transition/capacitance DRC qualify. Synthesis PASS requires every mapped RNG/LFSR state FF to be clock-gated; unrelated gated registers are not sufficient.",
         "",
         *markdown_table(
             [
                 "input_id", "architecture", "total_cell_area_um2",
                 "normalized_area_vs_baseline", "estimated_fmax_mhz",
-                "clock_gating_cells", "gated_register_percent",
+                "rng_registers_total", "rng_registers_gated",
+                "rng_registers_ungated", "rng_icg_cells",
                 "target_period_ns", "setup_status", "drc_status",
                 "hold_advisory", "synthesis_status",
             ],
             [
                 "Input", "Architecture", "Area um2", "Area/base", "Fmax est. MHz",
-                "ICG cells", "Gated regs %", "Target ns", "Setup", "DRC",
-                "Hold advisory", "Stage",
+                "RNG FF", "RNG gated", "RNG ungated", "RNG ICG",
+                "Target ns", "Setup", "DRC", "Hold advisory", "Stage",
             ],
             synth_rows,
         ),
@@ -867,14 +925,16 @@ def main():
             f"{fmt(row.get('mean_latency_ns')):>10} {fmt(row.get('p95_latency_ns')):>10} "
             f"{(f'{100*saving:.1f}%' if isinstance(saving, float) else '-'):>8}"
         )
-    print("\nInput              Architecture                     Area um2   Fmax est MHz   ICG   Gated%   Stage")
+    print("\nInput              Architecture                     Area um2   Fmax   RNG tot/gated/ungated  ICG  Stage")
     for row in synth_rows:
         print(
             f"{row['input_id']:<18} {row['architecture']:<32} "
             f"{fmt(row.get('total_cell_area_um2')):>10} "
-            f"{fmt(row.get('estimated_fmax_mhz')):>14} "
-            f"{fmt(row.get('clock_gating_cells')):>5} "
-            f"{fmt(row.get('gated_register_percent')):>7} "
+            f"{fmt(row.get('estimated_fmax_mhz')):>6} "
+            f"{fmt(row.get('rng_registers_total')):>4}/"
+            f"{fmt(row.get('rng_registers_gated')):>4}/"
+            f"{fmt(row.get('rng_registers_ungated')):<4} "
+            f"{fmt(row.get('rng_icg_cells')):>4} "
             f"{row['synthesis_status']:>9}"
         )
     print("\nInput              Architecture                     Pulse(ns)  Power(mW)  E/update(nJ)  Duty     Stage  Error")

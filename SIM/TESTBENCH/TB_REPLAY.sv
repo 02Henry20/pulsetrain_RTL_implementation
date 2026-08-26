@@ -68,15 +68,18 @@ module TB_REPLAY #(
     wire src_fire;
     wire [STOCHASTIC_VALUE_WIDTH-1:0] probe_lfsr;
     wire [STOCHASTIC_VALUE_WIDTH-1:0] probe_delay1;
+    wire [STOCHASTIC_VALUE_WIDTH-1:0] probe_delay2;
     assign src_fire = dut.architecture_top.source_fire;
     generate
         if (USE_SHARED_LFSR != 0) begin : GEN_RNG_PROBE_SHARED
             assign probe_lfsr = dut.architecture_top.GEN_SHARED_LFSR.shared_lfsr.VALUE;
             assign probe_delay1 = dut.architecture_top.GEN_SHARED_LFSR.d_delay_1;
+            assign probe_delay2 = dut.architecture_top.GEN_SHARED_LFSR.d_delay_2;
         end else begin : GEN_RNG_PROBE_INDEPENDENT
             assign probe_lfsr =
                 dut.architecture_top.GEN_PER_INPUT_LFSRS.GEN_LANE_LFSRS[0].x_lfsr.VALUE;
             assign probe_delay1 = {STOCHASTIC_VALUE_WIDTH{1'b0}};
+            assign probe_delay2 = {STOCHASTIC_VALUE_WIDTH{1'b0}};
         end
     endgenerate
 
@@ -105,12 +108,14 @@ module TB_REPLAY #(
 
     reg [STOCHASTIC_VALUE_WIDTH-1:0] lfsr_q_prev;
     reg [STOCHASTIC_VALUE_WIDTH-1:0] delay1_expect;
+    reg [STOCHASTIC_VALUE_WIDTH-1:0] delay2_expect;
     reg src_fire_d;
     always @(posedge CLK or negedge RST) begin
         if (!RST) begin
             src_fire_d <= 1'b0;
             lfsr_q_prev <= probe_lfsr;
             delay1_expect <= probe_delay1;
+            delay2_expect <= probe_delay2;
         end else begin
             if (saif_active) begin
                 saif_clk_cycles <= saif_clk_cycles + 1;
@@ -121,11 +126,15 @@ module TB_REPLAY #(
                 lfsr_advances <= lfsr_advances + 1;
                 if (probe_lfsr === lfsr_q_prev)
                     lfsr_seq_errors <= lfsr_seq_errors + 1;
-                if ((USE_SHARED_LFSR != 0) && (probe_delay1 !== delay1_expect))
+                if ((USE_SHARED_LFSR != 0) &&
+                    ((probe_delay1 !== delay1_expect) ||
+                     (probe_delay2 !== delay2_expect)))
                     shared_delay_errors <= shared_delay_errors + 1;
             end
-            if (src_fire)
+            if (src_fire) begin
                 delay1_expect <= probe_lfsr;
+                delay2_expect <= probe_delay1;
+            end
             src_fire_d <= src_fire;
             lfsr_q_prev <= probe_lfsr;
         end

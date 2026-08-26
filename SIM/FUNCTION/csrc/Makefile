@@ -8,7 +8,7 @@ VSRC=..
 TARGET_ARCH=
 
 # Choose name of executable 
-PRODUCTBASE=/home/henry/SS28_SCRIPT/CUSTOM/work/data8_1e_05_shared/simulation/lfsr_sort_zero_delete_group_mask/simv
+PRODUCTBASE=/home/henry/SS28_SCRIPT/CUSTOM/work/data8_1e_05_shared/simulation/lfsr_sort_zero_delete/simv
 
 PRODUCT=$(PRODUCTBASE)
 

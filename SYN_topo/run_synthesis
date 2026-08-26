@@ -70,15 +70,10 @@ if (${DC_STATUS} != 0) then
     echo "ERROR: synthesis failed; see ${LOG_FILE}"
     exit ${DC_STATUS}
 endif
-# dc_shell prints some caught power-command failures as top-level "Error:"
-# lines.  They invalidate the requested power point, not the mapped synthesis.
-# Continue treating errors before or after the marked power section as synthesis
-# failures, while run-level/per-point power status is handled below.
-awk '/^RM-Info: SS28 post-map power begin$/ { in_power=1; next } /^RM-Info: SS28 post-map power end$/ { in_power=0; next } in_power==0 && /^(Error:|RM-Error:)/ { found=1 } END { exit (found ? 0 : 1) }' "${LOG_FILE}"
-if ($status == 0) then
-    echo "ERROR: synthesis completed with reported errors; see ${LOG_FILE}"
-    exit 1
-endif
+# Do not classify synthesis from free-form "Error:" / "RM-Error:" greps.
+# Design Compiler prints recoverable messages (PWR-191, unknown-command) that
+# do not abort a mapped compile.  dc.tcl writes ss28.stage_status.csv with:
+#   synthesis_valid, rng_gating_valid, power_failures
 if (! -e "${PRECOMPILE_HIERARCHY_REPORT}") then
     echo "ERROR: missing precompile hierarchy report: ${PRECOMPILE_HIERARCHY_REPORT}"
     exit 1
@@ -103,6 +98,26 @@ if ($status != 0) then
     echo "ERROR: clock gating requested but no ICG cells were inserted; see ${CG_SUMMARY}"
     exit 1
 endif
+set RNG_CG_SUMMARY = "${REPORTS_DIR}/rng_clock_gating.summary.csv"
+if (! -e "${RNG_CG_SUMMARY}") then
+    echo "ERROR: missing RNG clock gating summary: ${RNG_CG_SUMMARY}"
+    exit 1
+endif
+grep -q 'rng_registers_total","[1-9]' "${RNG_CG_SUMMARY}"
+if ($status != 0) then
+    echo "ERROR: no mapped RNG/LFSR state registers were identified; see ${RNG_CG_SUMMARY}"
+    exit 1
+endif
+grep -q 'rng_registers_ungated","0"' "${RNG_CG_SUMMARY}"
+if ($status != 0) then
+    echo "ERROR: one or more RNG/LFSR state registers are not ICG-gated; see ${REPORTS_DIR}/ss28.rng_clock_gating.rpt"
+    exit 1
+endif
+grep -q 'rng_clock_gating_status","PASS"' "${RNG_CG_SUMMARY}"
+if ($status != 0) then
+    echo "ERROR: RNG clock gating status is not PASS; see ${RNG_CG_SUMMARY}"
+    exit 1
+endif
 set MAPPED_V = "${RESULTS_DIR}/TOP.mapped.v"
 if (! -e "${MAPPED_V}") then
     echo "ERROR: missing mapped netlist: ${MAPPED_V}"
@@ -114,10 +129,34 @@ if ($status != 0) then
 endif
 echo "INFO: mapped netlist ICG-like instance lines: ${ICG_HITS}"
 
-# Keep synthesis QoR distinct from post-map power.  Exit 2 means the mapped
-# design and its area/timing reports are valid, but one or more requested SAIF
-# power points failed.  CUSTOM/run_all.sh records those points separately.
-grep -q '^RM-Power-Error:' "${LOG_FILE}"
+set AREA_RPT = "${REPORTS_DIR}/TOP.mapped.area.rpt"
+if (! -e "${AREA_RPT}") then
+    echo "ERROR: missing mapped area report: ${AREA_RPT}"
+    exit 1
+endif
+
+set STAGE_CSV = "${REPORTS_DIR}/ss28.stage_status.csv"
+if (! -e "${STAGE_CSV}") then
+    echo "ERROR: missing synthesis stage status: ${STAGE_CSV}"
+    exit 1
+endif
+set SYNTH_VALID = `awk -F, '{ gsub(/"/, "", $1); gsub(/"/, "", $2); if ($1 == "synthesis_valid") { print $2; exit } }' "${STAGE_CSV}"`
+set RNG_VALID = `awk -F, '{ gsub(/"/, "", $1); gsub(/"/, "", $2); if ($1 == "rng_gating_valid") { print $2; exit } }' "${STAGE_CSV}"`
+set POWER_FAILURES = `awk -F, '{ gsub(/"/, "", $1); gsub(/"/, "", $2); if ($1 == "power_failures") { print $2; exit } }' "${STAGE_CSV}"`
+if ("${SYNTH_VALID}" != "1") then
+    echo "ERROR: mapped synthesis is not valid; see ${STAGE_CSV} and ${LOG_FILE}"
+    exit 1
+endif
+if ("${RNG_VALID}" != "1") then
+    echo "ERROR: RNG clock-gating validation failed; see ${REPORTS_DIR}/ss28.rng_clock_gating.rpt"
+    exit 1
+endif
+echo "${POWER_FAILURES}" | awk '$0 ~ /^-?[0-9]+$/ { valid=1 } END { exit (valid ? 0 : 1) }'
+if ($status != 0) then
+    echo "ERROR: invalid power_failures in ${STAGE_CSV}"
+    exit 1
+endif
+echo "${POWER_FAILURES}" | awk '{ exit ($1 == 0 ? 1 : 0) }'
 if ($status == 0) then
     echo "POWER_FAIL: mapped synthesis completed, but SAIF power analysis failed; see ${LOG_FILE}"
     exit 2

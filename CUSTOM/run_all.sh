@@ -130,6 +130,56 @@ cp "${PLAN_STAGE}/experiment_plan.json" "${PLAN_FILE}"
 cp "${PLAN_STAGE}/inputs.tsv" "${INPUTS_TSV}"
 cp "${PLAN_STAGE}/jobs.tsv" "${JOBS_TSV}"
 
+if [[ "${SS28_SMOKE:-0}" == "1" ]]; then
+    status RUN "SS28_SMOKE: baseline/zero_delete on data8_1e_04, lfsr on data8_1e_04_shared, pulse 10 ns"
+    "${PYTHON_BIN}" - "${PLAN_FILE}" "${INPUTS_TSV}" "${JOBS_TSV}" <<'PY'
+import json, sys
+from pathlib import Path
+plan_path, inputs_tsv, jobs_tsv = map(Path, sys.argv[1:4])
+plan = json.loads(plan_path.read_text(encoding="utf-8"))
+keep = {
+    ("data8_1e_04", "baseline"),
+    ("data8_1e_04", "zero_delete"),
+    ("data8_1e_04_shared", "lfsr"),
+}
+plan["jobs"] = [
+    job for job in plan.get("jobs", [])
+    if (job.get("input_id"), job.get("architecture")) in keep
+]
+for job in plan["jobs"]:
+    job["pulse_times_ns"] = [10]
+keep_inputs = {job["input_id"] for job in plan["jobs"]}
+plan["inputs"] = [
+    item for item in plan.get("inputs", []) if item.get("id") in keep_inputs
+]
+for item in plan["inputs"]:
+    item["pulse_times_ns"] = [10]
+plan_path.write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+def filter_tsv(path, input_idx, extra_keep=None):
+    rows = path.read_text(encoding="utf-8").splitlines()
+    out = []
+    for line in rows:
+        if not line.strip():
+            continue
+        fields = line.split("\t")
+        key = fields[input_idx]
+        if extra_keep is None:
+            if key in keep_inputs:
+                fields[4] = "10"
+                out.append("\t".join(fields))
+        else:
+            if (fields[0], fields[5]) in extra_keep:
+                fields[4] = "10"
+                out.append("\t".join(fields))
+    path.write_text("\n".join(out) + ("\n" if out else ""), encoding="utf-8")
+
+filter_tsv(inputs_tsv, 0)
+filter_tsv(jobs_tsv, 0, keep)
+print(f"SS28_SMOKE jobs={len(plan['jobs'])} inputs={len(plan['inputs'])}")
+PY
+fi
+
 printf 'stage,input_id,architecture,pulse_time_ns,status,log\n' > "${STATUS_FILE}"
 overall_failed=0
 declare -A INPUT_VALID
@@ -277,6 +327,7 @@ while IFS=$'\t' read -r \
                     DIGITAL_CLOCK_NS="${DIGITAL_CLOCK_NS}" \
                     POWER_SAIF_LIST="${power_saif_list}" \
                     SAIF_INSTANCE="TB_REPLAY/dut" \
+                    SS28_FORCE_POWER_FAIL_PULSE="${SS28_FORCE_POWER_FAIL_PULSE:-}" \
                     ./run_synthesis "${arch}" "${input_id}"
             ) >"${synth_log}" 2>&1
             synth_rc=$?

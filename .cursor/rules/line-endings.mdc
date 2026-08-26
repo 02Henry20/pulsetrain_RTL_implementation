@@ -1,0 +1,13 @@
+---
+description: Linux LF line endings required
+alwaysApply: true
+---
+
+This repository is executed on Linux. Never write CRLF.
+
+Windows Cursor/Serena/SSHFS edits caused CUSTOM/run_all.sh to fail with:
+- set: pipefail: invalid option name
+- CR command not found
+- cd paths containing a trailing CR
+
+.gitattributes eol=lf is not enough. After editing .sh, .csh, .tcl, .py, .v, or .sv from Windows, rewrite the file as raw LF bytes (Python read_bytes/write_bytes, not text mode). On the CAD host run sed -i 's/\r$//' FILE && file FILE before executing. A script is not done if Linux file reports CRLF.

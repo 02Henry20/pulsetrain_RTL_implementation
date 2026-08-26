@@ -46,4 +46,4 @@ include filelist.hsopt
 
 
 rmapats.so: $(HSOPT_OBJS)
-	@$(VCS_CC) $(LDFLAGS) $(LIBS) -shared -o ./../../../CUSTOM/work/data8_1e_05_shared/simulation/lfsr_sort_zero_delete_group_mask/simv.daidir/rmapats.so $(HSOPT_OBJS)
+	@$(VCS_CC) $(LDFLAGS) $(LIBS) -shared -o ./../../../CUSTOM/work/data8_1e_05_shared/simulation/lfsr_sort_zero_delete/simv.daidir/rmapats.so $(HSOPT_OBJS)
