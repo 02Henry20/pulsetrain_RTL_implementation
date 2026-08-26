@@ -228,6 +228,46 @@ def parse_power_report(path):
     }
 
 
+def read_first_row(path):
+    if not path.is_file():
+        return {}
+    try:
+        with path.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        return rows[0] if rows else {}
+    except (OSError, csv.Error, UnicodeError, IndexError):
+        return {}
+
+
+def parse_clock_gating(reports):
+    values = read_key_values(reports / "clock_gating.summary.csv")
+    cells = values.get("clock_gating_cells")
+    gated = values.get("gated_registers")
+    ungated = values.get("ungated_registers")
+    parsed = {
+        "clock_gating_cells": None,
+        "gated_registers": None,
+        "ungated_registers": None,
+        "gated_register_percent": None,
+    }
+    try:
+        parsed["clock_gating_cells"] = int(float(cells)) if cells not in (None, "") else None
+        parsed["gated_registers"] = int(float(gated)) if gated not in (None, "") else None
+        parsed["ungated_registers"] = int(float(ungated)) if ungated not in (None, "") else None
+    except (TypeError, ValueError):
+        return parsed
+    parsed["icg_ref_names"] = values.get("icg_ref_names") or None
+    try:
+        area = values.get("icg_cell_area")
+        parsed["icg_cell_area_um2"] = float(area) if area not in (None, "") else None
+    except (TypeError, ValueError):
+        parsed["icg_cell_area_um2"] = None
+    total = (parsed["gated_registers"] or 0) + (parsed["ungated_registers"] or 0)
+    if parsed["gated_registers"] is not None and total > 0:
+        parsed["gated_register_percent"] = 100.0 * parsed["gated_registers"] / total
+    return parsed
+
+
 def parse_power_summary(path):
     values = read_key_values(path)
     if not values:
@@ -237,6 +277,8 @@ def parse_power_summary(path):
         "pulse_time_ns", "clock_period_ns", "saif_duration_ns",
         "cell_internal_power_w", "net_switching_power_w", "dynamic_power_w",
         "leakage_power_w", "total_power_w", "annotated_percent",
+        "lfsr_registers_total", "lfsr_registers_toggle_nonzero",
+        "lfsr_registers_default_zero",
     ):
         if key in parsed and parsed[key] != "":
             try:
@@ -255,6 +297,10 @@ def parse_energy(root, input_id, architecture, pulse, stats):
         "energy_per_pulse_pj": None, "saif_duration_ns": None,
         "total_pulses": None, "annotated_percent": None,
         "power_error": "missing_power_summary",
+        "energy_per_update_nj": None, "internal_power_mw": None,
+        "source_fire_count": None, "source_fire_duty": None,
+        "saif_clk_cycles": None, "rng_gated_cycles": None,
+        "lfsr_registers_total": None, "lfsr_registers_toggle_nonzero": None,
     }
     try:
         total_pulses = int(float(stats.get("total_pulses", 0)))
@@ -293,6 +339,10 @@ def parse_energy(root, input_id, architecture, pulse, stats):
         )
         return failed
     energy_j = total_w * duration_ns * 1e-9
+    try:
+        updates = int(float(stats.get("updates", 0)))
+    except (TypeError, ValueError):
+        updates = 0
     return {
         "energy_status": "PASS",
         "power_mw": total_w * 1e3,
@@ -304,6 +354,9 @@ def parse_energy(root, input_id, architecture, pulse, stats):
         "total_pulses": total_pulses,
         "annotated_percent": values.get("annotated_percent"),
         "power_error": "",
+        "energy_per_update_nj": None if updates <= 0 else energy_j * 1e9 / updates,
+        "internal_power_mw": None if values.get("cell_internal_power_w") is None
+            else values.get("cell_internal_power_w") * 1e3,
     }
 
 
@@ -377,9 +430,16 @@ def parse_synthesis(root, input_id, architecture, target):
         estimated_period and estimated_period > 0
     )
     fmax = 1000.0 / estimated_period if qualified else None
+    gating = parse_clock_gating(reports)
+    gating_ok = (
+        gating.get("clock_gating_cells") is not None and
+        gating["clock_gating_cells"] > 0 and
+        gating.get("gated_registers") is not None and
+        gating["gated_registers"] > 0
+    )
 
     return {
-        "synthesis_status": "PASS",
+        "synthesis_status": "PASS" if gating_ok else "FAIL",
         "total_cell_area_um2": total_area,
         "cell_count": int(cell_count) if cell_count is not None else None,
         "combinational_area_um2": comb_area,
@@ -394,6 +454,7 @@ def parse_synthesis(root, input_id, architecture, target):
         "drc_violation_count": drc_violations,
         "worst_hold_slack_ns": worst_hold,
         "hold_advisory": hold_status,
+        **gating,
     }
 
 
@@ -533,14 +594,63 @@ def main():
                 options.synth_root, job["input_id"], job["architecture"],
                 pulse, stats,
             )
+            rng = read_first_row(
+                options.per_update_dir / job["input_id"] /
+                f"{job['architecture']}_{pulse}ns.rng.csv"
+            )
+            for key in (
+                "saif_clk_cycles", "source_fire_count", "source_fire_duty",
+                "rng_gated_cycles", "rng_active_cycles", "lfsr_advances",
+                "lfsr_seq_errors", "shared_delay_errors",
+            ):
+                value = rng.get(key)
+                if value not in (None, ""):
+                    try:
+                        row[key] = float(value) if "." in str(value) else int(value)
+                    except ValueError:
+                        row[key] = value
+            cov = parse_power_summary(
+                options.synth_root / job["input_id"] / job["architecture"] /
+                "no_saif" / "reports" / "power" / f"{pulse}ns.rng_coverage.csv"
+            )
+            row["lfsr_registers_total"] = cov.get("lfsr_registers_total")
+            row["lfsr_registers_toggle_nonzero"] = cov.get("lfsr_registers_toggle_nonzero")
+            row["lfsr_registers_default_zero"] = cov.get("lfsr_registers_default_zero")
             row.update(job_common(job))
             row["pulse_time_ns"] = pulse
+            seq_err = rng.get("lfsr_seq_errors")
+            delay_err = rng.get("shared_delay_errors")
+            advances = rng.get("lfsr_advances")
+            fires = rng.get("source_fire_count")
+            rng_failed = (
+                not rng or seq_err not in (None, "", "0", 0) or
+                delay_err not in (None, "", "0", 0) or
+                (advances not in (None, "") and fires not in (None, "") and
+                 str(advances) != str(fires))
+            )
+            total_lfsr = row.get("lfsr_registers_total")
+            annotated_lfsr = row.get("lfsr_registers_toggle_nonzero")
+            try:
+                lfsr_unannotated = (
+                    total_lfsr is not None and float(total_lfsr) > 0 and
+                    (annotated_lfsr is None or float(annotated_lfsr) == 0)
+                )
+            except (TypeError, ValueError):
+                lfsr_unannotated = False
             if statuses.get(
                 ("simulation", job["input_id"], job["architecture"], str(pulse))
             ) != "PASS":
                 row["energy_status"] = "FAIL"
                 if not row.get("power_error"):
                     row["power_error"] = "simulation_stage_failed"
+            elif rng_failed:
+                row["energy_status"] = "FAIL"
+                if not row.get("power_error"):
+                    row["power_error"] = "rng_sequence_or_stats_failed"
+            elif lfsr_unannotated:
+                row["energy_status"] = "FAIL"
+                if not row.get("power_error"):
+                    row["power_error"] = "lfsr_activity_unannotated"
             energy_rows.append(row)
 
     synth_by_job = {
@@ -585,12 +695,19 @@ def main():
         "estimated_min_period_ns", "estimated_fmax_mhz", "setup_status",
         "drc_status", "drc_violation_count", "worst_hold_slack_ns",
         "hold_advisory", "synthesis_status",
+        "clock_gating_cells", "gated_registers", "ungated_registers",
+        "gated_register_percent", "icg_cell_area_um2", "icg_ref_names",
     ]
     synth_fields = common_fields + synth_metric_fields
     energy_metric_fields = [
         "pulse_time_ns", "power_mw", "dynamic_power_mw", "leakage_power_mw",
-        "tb_energy_nj", "energy_per_pulse_pj", "total_pulses",
-        "saif_duration_ns", "annotated_percent", "power_error", "energy_status",
+        "tb_energy_nj", "energy_per_update_nj", "energy_per_pulse_pj",
+        "total_pulses", "internal_power_mw", "saif_duration_ns",
+        "source_fire_count", "source_fire_duty", "saif_clk_cycles",
+        "rng_gated_cycles", "lfsr_advances", "lfsr_seq_errors",
+        "shared_delay_errors", "lfsr_registers_total",
+        "lfsr_registers_toggle_nonzero", "lfsr_registers_default_zero",
+        "annotated_percent", "power_error", "energy_status",
     ]
     energy_fields = common_fields + energy_metric_fields
     write_csv(options.output_dir / "latency.csv", latency_rows, latency_fields)
@@ -692,33 +809,38 @@ def main():
         ),
         "", "## Energy",
         "",
-        "Power is average total power over the SAIF window of the replay testbench, at the 100 MHz digital clock. TB energy is Power × SAIF duration. Energy/pulse divides that energy by the number of asserted X and D pulses in CUSTOM/input.",
+        "Power is average total digital power over the SAIF window at the 100 MHz digital clock. TB energy is P_avg × SAIF duration and includes analog wait. E_dig/update = TB energy / completed weight updates. Energy/pulse remains for compatibility. RNG duty cycle is source_fire / digital clocks in that same window.",
         "",
         *markdown_table(
             [
                 "input_id", "architecture", "pulse_time_ns", "power_mw",
-                "tb_energy_nj", "energy_per_pulse_pj", "total_pulses",
-                "energy_status", "power_error",
+                "energy_per_update_nj", "tb_energy_nj", "energy_per_pulse_pj",
+                "source_fire_duty", "lfsr_registers_toggle_nonzero",
+                "lfsr_registers_default_zero", "energy_status", "power_error",
             ],
             [
                 "Input", "Architecture", "T_pulse ns", "Power mW",
-                "TB energy nJ", "Energy/pulse pJ", "Pulses", "Stage", "Error",
+                "E_dig/update nJ", "TB energy nJ", "Energy/pulse pJ",
+                "source_fire duty", "LFSR annotated", "LFSR default-zero",
+                "Stage", "Error",
             ],
             energy_rows,
         ),
         "", "## Synthesis", "",
-        "Area is post-synthesis standard-cell area. Fmax is reported only when setup and transition/capacitance DRC qualify.",
+        "Area is post-synthesis standard-cell area after inferred ICG insertion. Fmax is reported only when setup and transition/capacitance DRC qualify. Rows without clock-gating cells are FAIL.",
         "",
         *markdown_table(
             [
                 "input_id", "architecture", "total_cell_area_um2",
                 "normalized_area_vs_baseline", "estimated_fmax_mhz",
+                "clock_gating_cells", "gated_register_percent",
                 "target_period_ns", "setup_status", "drc_status",
                 "hold_advisory", "synthesis_status",
             ],
             [
                 "Input", "Architecture", "Area um2", "Area/base", "Fmax est. MHz",
-                "Target ns", "Setup", "DRC", "Hold advisory", "Stage",
+                "ICG cells", "Gated regs %", "Target ns", "Setup", "DRC",
+                "Hold advisory", "Stage",
             ],
             synth_rows,
         ),
@@ -745,22 +867,24 @@ def main():
             f"{fmt(row.get('mean_latency_ns')):>10} {fmt(row.get('p95_latency_ns')):>10} "
             f"{(f'{100*saving:.1f}%' if isinstance(saving, float) else '-'):>8}"
         )
-    print("\nInput              Architecture                     Area um2   Fmax est MHz   Stage")
+    print("\nInput              Architecture                     Area um2   Fmax est MHz   ICG   Gated%   Stage")
     for row in synth_rows:
         print(
             f"{row['input_id']:<18} {row['architecture']:<32} "
             f"{fmt(row.get('total_cell_area_um2')):>10} "
             f"{fmt(row.get('estimated_fmax_mhz')):>14} "
+            f"{fmt(row.get('clock_gating_cells')):>5} "
+            f"{fmt(row.get('gated_register_percent')):>7} "
             f"{row['synthesis_status']:>9}"
         )
-    print("\nInput              Architecture                     Pulse(ns)  Power(mW)  TB energy(nJ)  Energy/pulse(pJ)   Stage  Error")
+    print("\nInput              Architecture                     Pulse(ns)  Power(mW)  E/update(nJ)  Duty     Stage  Error")
     for row in energy_rows:
         print(
             f"{row['input_id']:<18} {row['architecture']:<32} "
             f"{row['pulse_time_ns']:>9} "
             f"{fmt(row.get('power_mw'), 4):>10} "
-            f"{fmt(row.get('tb_energy_nj'), 4):>13} "
-            f"{fmt(row.get('energy_per_pulse_pj'), 4):>16} "
+            f"{fmt(row.get('energy_per_update_nj'), 4):>12} "
+            f"{fmt(row.get('source_fire_duty'), 6):>8} "
             f"{row['energy_status']:>7}  {row.get('power_error', '')}"
         )
 

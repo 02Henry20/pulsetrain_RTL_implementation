@@ -67,7 +67,7 @@ module LFSR #(
 
     generate
         if (WIDTH == 1) begin : GEN_ONE_BIT_LFSR
-            // Emit a new random word every clock without an enable stage.
+            // ENABLE is a clock-enable. Synthesis infers ICG so CK is gated.
             always @(posedge CLK or negedge RST) begin
                 if (!RST)
                     VALUE <= RESET_VALUE;
@@ -80,7 +80,7 @@ module LFSR #(
             // XOR only the state bits selected by the primitive polynomial.
             assign feedback = ^(VALUE & SELECTED_TAPS);
 
-            // Emit a new random word every clock without an enable stage.
+            // ENABLE is a clock-enable. Synthesis infers ICG so CK is gated.
             always @(posedge CLK or negedge RST) begin
                 if (!RST)
                     VALUE <= RESET_VALUE;

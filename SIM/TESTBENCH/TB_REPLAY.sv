@@ -6,7 +6,8 @@ module TB_REPLAY #(
     parameter integer STOCHASTIC_VALUE_WIDTH = 16,
     parameter integer OUTPUT_BUFFER_DEPTH = 10,
     parameter integer DIGITAL_CLOCK_NS = 10,
-    parameter [STOCHASTIC_VALUE_WIDTH-1:0] LFSR_SEED = 16'hACE1
+    parameter [STOCHASTIC_VALUE_WIDTH-1:0] LFSR_SEED = 16'hACE1,
+    parameter integer USE_SHARED_LFSR = 0
 );
     localparam integer BL_WIDTH = (MAX_BL <= 1) ? 1 : $clog2(MAX_BL + 1);
     localparam integer OCC_WIDTH =
@@ -57,6 +58,27 @@ module TB_REPLAY #(
     integer saif_enable;
     integer saif_active;
     string saif_path;
+    integer saif_clk_cycles;
+    integer saif_source_fires;
+    integer lfsr_advances;
+    integer lfsr_seq_errors;
+    integer shared_delay_errors;
+    integer rng_fd;
+    string rng_stats_path;
+    wire src_fire;
+    wire [STOCHASTIC_VALUE_WIDTH-1:0] probe_lfsr;
+    wire [STOCHASTIC_VALUE_WIDTH-1:0] probe_delay1;
+    assign src_fire = dut.architecture_top.source_fire;
+    generate
+        if (USE_SHARED_LFSR != 0) begin : GEN_RNG_PROBE_SHARED
+            assign probe_lfsr = dut.architecture_top.GEN_SHARED_LFSR.shared_lfsr.VALUE;
+            assign probe_delay1 = dut.architecture_top.GEN_SHARED_LFSR.d_delay_1;
+        end else begin : GEN_RNG_PROBE_INDEPENDENT
+            assign probe_lfsr =
+                dut.architecture_top.GEN_PER_INPUT_LFSRS.GEN_LANE_LFSRS[0].x_lfsr.VALUE;
+            assign probe_delay1 = {STOCHASTIC_VALUE_WIDTH{1'b0}};
+        end
+    endgenerate
 
     task saif_begin;
         begin
@@ -80,6 +102,34 @@ module TB_REPLAY #(
             end
         end
     endtask
+
+    reg [STOCHASTIC_VALUE_WIDTH-1:0] lfsr_q_prev;
+    reg [STOCHASTIC_VALUE_WIDTH-1:0] delay1_expect;
+    reg src_fire_d;
+    always @(posedge CLK or negedge RST) begin
+        if (!RST) begin
+            src_fire_d <= 1'b0;
+            lfsr_q_prev <= probe_lfsr;
+            delay1_expect <= probe_delay1;
+        end else begin
+            if (saif_active) begin
+                saif_clk_cycles <= saif_clk_cycles + 1;
+                if (src_fire)
+                    saif_source_fires <= saif_source_fires + 1;
+            end
+            if (src_fire_d) begin
+                lfsr_advances <= lfsr_advances + 1;
+                if (probe_lfsr === lfsr_q_prev)
+                    lfsr_seq_errors <= lfsr_seq_errors + 1;
+                if ((USE_SHARED_LFSR != 0) && (probe_delay1 !== delay1_expect))
+                    shared_delay_errors <= shared_delay_errors + 1;
+            end
+            if (src_fire)
+                delay1_expect <= probe_lfsr;
+            src_fire_d <= src_fire;
+            lfsr_q_prev <= probe_lfsr;
+        end
+    end
 
     integer t_pulse_ns;
     reg device_busy;
@@ -514,7 +564,17 @@ module TB_REPLAY #(
         saif_enable = 0;
         saif_active = 0;
         saif_path = "";
+        saif_clk_cycles = 0;
+        saif_source_fires = 0;
+        lfsr_advances = 0;
+        lfsr_seq_errors = 0;
+        shared_delay_errors = 0;
+        src_fire_d = 0;
+        rng_fd = 0;
+        rng_stats_path = "";
         saif_enable = $value$plusargs("SAIF_FILE=%s", saif_path);
+        if (!$value$plusargs("RNG_STATS_FILE=%s", rng_stats_path))
+            rng_stats_path = "rng_stats.csv";
 
         if (!$value$plusargs("TRACE_FILE=%s", trace_path)) begin
             $display("ERROR: +TRACE_FILE is required");
@@ -608,6 +668,37 @@ module TB_REPLAY #(
 
         $fclose(trace_fd);
         $fclose(result_fd);
+        if ((processed_updates != trace_updates) || (total_errors != 0)) begin
+            $display("RESULT: FAIL architecture=%0s updates=%0d/%0d errors=%0d bypass=%0d",
+                     architecture_name, processed_updates, trace_updates,
+                     total_errors, group_mask_bypass_count);
+            saif_end;
+            $finish(1);
+        end
+        @(posedge CLK);
+        #1;
+        if ((lfsr_advances != saif_source_fires) ||
+            (lfsr_seq_errors != 0) || (shared_delay_errors != 0)) begin
+            $display("ERROR: RNG sequence checker failed fires=%0d advances=%0d seq_err=%0d delay_err=%0d",
+                     saif_source_fires, lfsr_advances, lfsr_seq_errors, shared_delay_errors);
+            total_errors = total_errors + 1;
+        end
+        rng_fd = $fopen(rng_stats_path, "w");
+        if (rng_fd != 0) begin
+            $fwrite(rng_fd,
+                "saif_clk_cycles,source_fire_count,source_fire_duty,lfsr_advances,rng_gated_cycles,rng_active_cycles,lfsr_seq_errors,shared_delay_errors\n");
+            $fwrite(rng_fd, "%0d,%0d,%0.9f,%0d,%0d,%0d,%0d,%0d\n",
+                    saif_clk_cycles, saif_source_fires,
+                    (saif_clk_cycles == 0) ? 0.0 : (1.0 * saif_source_fires) / saif_clk_cycles,
+                    lfsr_advances,
+                    (saif_clk_cycles > saif_source_fires) ? (saif_clk_cycles - saif_source_fires) : 0,
+                    saif_source_fires, lfsr_seq_errors, shared_delay_errors);
+            $fclose(rng_fd);
+        end
+        $display("RNG_STATS clk=%0d fires=%0d duty=%0.6f advances=%0d seq_err=%0d delay_err=%0d",
+                 saif_clk_cycles, saif_source_fires,
+                 (saif_clk_cycles == 0) ? 0.0 : (1.0 * saif_source_fires) / saif_clk_cycles,
+                 lfsr_advances, lfsr_seq_errors, shared_delay_errors);
         if ((processed_updates != trace_updates) || (total_errors != 0)) begin
             $display("RESULT: FAIL architecture=%0s updates=%0d/%0d errors=%0d bypass=%0d",
                      architecture_name, processed_updates, trace_updates,

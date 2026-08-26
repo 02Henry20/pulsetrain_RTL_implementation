@@ -10,9 +10,9 @@ The flow validates every selected AIHWKIT pulse trace, builds explicit input/arc
 
 ## Methodology
 
-System-latency simulations replay realized binary stochastic pulse trains recorded from AIHWKIT. The stochastic pulse-generation hardware is bypassed during trace replay because it sustains one candidate pulse position per digital cycle and is not the throughput bottleneck. Every architecture therefore receives exactly the same stochastic realization.
+System-latency simulations replay realized binary stochastic pulse trains recorded from AIHWKIT. Comparator outputs are replaced by those recorded bits so every architecture sees the same stochastic realization; that is the authoritative Zero Delete / Sorting / latency experiment. The LFSR state is no longer omitted from replay: it is elaborated and clock-enable-advanced on `source_fire` so power SAIF contains RNG activity that maps onto the synthesized netlist.
 
-The complete LFSR and pulse-generation circuitry remains in the synthesized architecture and is included in area and timing characterization. Replay changes only the source selected ahead of the shared SORT / ZERO DELETE / GROUP MASK / OUTPUT BUFFER pipeline.
+The complete LFSR and pulse-generation circuitry remains in the synthesized architecture and is included in area and timing characterization. Replay still substitutes realized AIHWKIT bits for the comparator outputs, so Zero Delete / Sorting / buffering see the recorded pulse train. The LFSR state machines nevertheless remain in the testbench hierarchy and advance on `source_fire`, which is what the power SAIF needs in order to match the mapped RNG.
 
 Keep the two timing configurations separate:
 
@@ -57,7 +57,7 @@ Non-square AIHWKIT tiles are supported through metadata. If `x_size` or `d_size`
 
 ## Replay handshake and latency
 
-`SIM/TESTBENCH/TB_REPLAY.sv` elaborates `TOP` with `RAW_REPLAY_MODE=1` and drives `X_RAW_PULSES_IN` and `D_RAW_PULSES_IN`. It advances `pulse_index` only on `INPUT_VALID && READY_IN`; raw X, raw D, `INPUT_VALID`, and `INPUT_BL` remain stable under backpressure. Optional `+SAIF_FILE=` dumps switching activity over that same replay window, after reset and through analog wait.
+`SIM/TESTBENCH/TB_REPLAY.sv` elaborates `TOP` with `RAW_REPLAY_MODE=1` and drives `X_RAW_PULSES_IN` and `D_RAW_PULSES_IN`. It advances `pulse_index` only on `INPUT_VALID && READY_IN`; raw X, raw D, `INPUT_VALID`, and `INPUT_BL` remain stable under backpressure. Optional `+SAIF_FILE=` dumps switching activity over that same replay window, after reset and through analog wait. `+RNG_STATS_FILE=` records digital clock cycles, `source_fire` count/duty cycle, LFSR advances, and sequence-checker errors. The test fails if `source_fire` events do not equal LFSR advances or if the shared two-position D delay loses alignment.
 
 For each serial update:
 
@@ -84,9 +84,11 @@ normalized X/D values -> LFSR + pulse generation -> preprocessing -> output buff
 
 A precompile hierarchy report is generated for every synthesis run, and the driver fails if it cannot find both LFSR and pulse-generator hierarchy. Synthesis is performed once per selected `(input configuration, architecture)` pair. SAIF is **not** used during `compile_ultra`, so area and Fmax stay independent of activity. After mapping, Design Compiler temporarily recreates `MAIN_CLOCK` at `DIGITAL_CLOCK_NS` (100 MHz), annotates each replay SAIF onto the mapped netlist, and reports power.
 
-This is activity-based power for the replayed preprocessing/output path, plus leakage for the complete mapped design. It is not a measured full-source dynamic-power result: the testbench uses `RAW_REPLAY_MODE=1`, while synthesis retains `RAW_REPLAY_MODE=0`, so the LFSR and pulse-comparator source has no matching replay activity. Unannotated nets deliberately default to zero toggle rather than an invented activity rate. A future full-source dynamic-power experiment therefore requires traces of the original normalized X/D values, not only their realized binary pulses.
+Clock gating is inferred, not written as a combinational AND on `CLK`. `dc.tcl` sets `set_clock_gating_style -positive_edge_logic {integrated}` and compiles with `compile_ultra -gate_clock`. The intended enable is `source_fire`: LFSRs and shared `d_delay_*` registers advance only when a new candidate is accepted. Other DUT clocks, including the output buffer, remain on the system clock. Synthesis fails if no ICG cells or gated registers are inserted. Reports include `clock_gating.summary.csv` and `ss28.clock_gating.rpt`.
 
-Average power over the SAIF window is `P`. Total replay-window energy is `P × t_SAIF`. Energy/input-pulse divides that energy by the total number of asserted X and D pulse bits in the input trace; it does not divide by pulse positions or crossbar coincidences. Each power point has its own PASS/FAIL status and diagnostic. A failed power point does not discard valid area/Fmax reports, but it does make the overall experiment exit nonzero. Reports stay isolated when inputs use different dimensions or `MAX_BL` values.
+Replay still drives realized AIHWKIT binary pulses into the preprocessing/output datapath, so latency and pulse-compression results are unchanged. The LFSR hierarchy is now always elaborated during replay so SAIF contains RNG state/feedback activity that maps onto the `RAW_REPLAY_MODE=0` netlist. LFSR outputs do **not** replace the raw pulse vectors. Comparator activity versus original normalized X/D values is still missing unless those magnitudes are stored; unannotated nets keep `power_default_toggle_rate 0`. A power point fails if LFSR `VALUE` registers exist but none have nonzero annotated toggle.
+
+Average power over the SAIF window is `P`. Total replay-window energy is `P × t_SAIF` and includes analog wait. The publication metric is `E_dig/update = P × t_SAIF / completed weight updates`. Energy/input-pulse remains for compatibility. Each power point has its own PASS/FAIL status and diagnostic. A failed power point does not discard valid gated area/Fmax reports, but it does make the overall experiment exit nonzero. Reports stay isolated when inputs use different dimensions or `MAX_BL` values.
 
 ## JSON experiment manifests
 

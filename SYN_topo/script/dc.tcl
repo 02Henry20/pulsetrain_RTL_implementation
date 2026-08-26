@@ -259,19 +259,10 @@ current_scenario ${current_scenario_saved}
 
     # set_preserve_clock_gate [get_cell <user_clock_gating_cells>]
 
-    # Default clock_gating_style suits most designs.  Change only if necessary.
-    # set_clock_gating_style -positive_edge_logic {integrated} -negative_edge_logic {integrated} -control_point before ...   
-    #set_clock_gating_style -positive_edge_logic {integrated} -negative_edge_logic {integrated} 
-    # set_clock_gating_style -positive_edge_logic {integrated}
-
-    # Clock gate insertion is now performed during compile_ultra -gate_clock
-    # so insert_clock_gating is no longer recommended at this step.
-
-    # The following setting can be used to enable global clock gating.
-    # With global clock gating, common enables are extracted across hierarchies
-    # which results in fewer redundant clock gates. 
-
-    # set compile_clock_gating_through_hierarchy true 
+    # Infer ICG for clock-enable registers (LFSR ENABLE=source_fire, shared delays).
+    # integrated = library ICG cell, not a combinational AND on CLK.
+    set_clock_gating_style -positive_edge_logic {integrated} -minimum_bitwidth 1
+    set compile_clock_gating_through_hierarchy true
 
     # For better timing optimization of enable logic, clock latency for 
     # clock gating cells can be optionally specified.
@@ -628,9 +619,7 @@ if {[shell_is_in_topographical_mode]} {
 
 set_host_options -max_cores 8 
 
-#compile_ultra -scan -gate_clock -spg
-#compile_ultra -gate_clock -spg > ${REPORTS_DIR}/${DESIGN_NAME}.compile_ultra.rpt
-compile_ultra -spg -no_autoungroup > ${REPORTS_DIR}/${DESIGN_NAME}.compile_ultra.rpt
+compile_ultra -gate_clock -spg -no_autoungroup > ${REPORTS_DIR}/${DESIGN_NAME}.compile_ultra.rpt
 #compile_ultra -spg -no_autoungroup 
 
 #################################################################################
@@ -1075,8 +1064,7 @@ if {[file exists [which ${LIBRARY_DONT_USE_PRE_INCR_COMPILE_LIST}]]} {
 
 set_fix_hold [all_clocks]
 
-#compile_ultra -incremental -scan -spg
-compile_ultra -incremental -spg -no_autoungroup > ${REPORTS_DIR}/${DESIGN_NAME}_compile_ultra_incremental.rpt
+compile_ultra -incremental -gate_clock -spg -no_autoungroup > ${REPORTS_DIR}/${DESIGN_NAME}_compile_ultra_incremental.rpt
 #compile_ultra -incremental -spg -no_autoungroup
 
 
@@ -1369,6 +1357,106 @@ proc ss28_write_power_summary {csv values} {
   }
   close $fh
 }
+proc ss28_require_clock_gating {} {
+  global REPORTS_DIR
+  catch {identify_clock_gating}
+  set rpt [file join ${REPORTS_DIR} ss28.clock_gating.rpt]
+  redirect $rpt { report_clock_gating -nosplit }
+  set text {}
+  if {[catch {set fh [open $rpt r]; set text [read $fh]; close $fh}]} {
+    error "cannot read clock gating report ${rpt}"
+  }
+  set elements 0
+  set gated 0
+  set ungated 0
+  regexp {Number of Clock gating elements\s+\|\s+([0-9]+)} $text -> elements
+  regexp {Number of Gated registers\s+\|\s+([0-9]+)} $text -> gated
+  regexp {Number of Ungated registers\s+\|\s+([0-9]+)} $text -> ungated
+  set csv [file join ${REPORTS_DIR} clock_gating.summary.csv]
+  set out [open $csv w]
+  puts $out "metric,value,unit"
+  set icg_cells [get_cells -quiet -hierarchical -filter {
+    ref_name =~ *ICG* || ref_name =~ *PREICG* || ref_name =~ *CKLN*
+  }]
+  set icg_count [sizeof_collection $icg_cells]
+  set icg_refs {}
+  set icg_area 0.0
+  foreach_in_collection cell $icg_cells {
+    lappend icg_refs [get_attribute -quiet $cell ref_name]
+    set a [get_attribute -quiet $cell area]
+    if {$a ne {} && [string is double -strict $a]} {
+      set icg_area [expr {$icg_area + $a}]
+    }
+  }
+  set icg_refs [lsort -unique $icg_refs]
+  set lfsr_ffs [get_cells -quiet -hierarchical -filter {
+    is_sequential == true && (full_name =~ *VALUE_reg* || full_name =~ *d_delay_1_reg* || full_name =~ *d_delay_2_reg*)
+  }]
+  set lfsr_total [sizeof_collection $lfsr_ffs]
+  set lfsr_direct_clk 0
+  foreach_in_collection ff $lfsr_ffs {
+    set ck [get_pins -quiet -of_objects $ff -filter {name == CK || name == CLK}]
+    if {[sizeof_collection $ck] == 0} { continue }
+    set nets [get_nets -quiet -of_objects $ck]
+    foreach_in_collection net $nets {
+      set net_name [get_attribute -quiet $net full_name]
+      if {[string match *CLK $net_name] && ![string match *gated* $net_name] &&
+          ![string match *ICG* $net_name] && ![string match *ck_gate* $net_name]} {
+        incr lfsr_direct_clk
+      }
+    }
+  }
+  redirect [file join ${REPORTS_DIR} ss28.lfsr_clock.rpt] {
+    echo "ICG_REF_NAMES ${icg_refs}"
+    echo "ICG_CELL_COUNT ${icg_count}"
+    echo "ICG_AREA ${icg_area}"
+    echo "LFSR_OR_DELAY_FFS ${lfsr_total}"
+    echo "LFSR_OR_DELAY_CK_NETS_NAMED_CLK ${lfsr_direct_clk}"
+    report_clock_gating -gating_element -nosplit
+  }
+  puts $out "\"clock_gating_cells\",\"${elements}\",\"count\""
+  puts $out "\"gated_registers\",\"${gated}\",\"count\""
+  puts $out "\"ungated_registers\",\"${ungated}\",\"count\""
+  puts $out "\"icg_library_cells\",\"${icg_count}\",\"count\""
+  puts $out "\"icg_cell_area\",\"${icg_area}\",\"um2\""
+  puts $out "\"icg_ref_names\",\"[join $icg_refs {;} ]\",\"name\""
+  puts $out "\"lfsr_or_delay_ffs\",\"${lfsr_total}\",\"count\""
+  puts $out "\"lfsr_or_delay_ck_named_clk\",\"${lfsr_direct_clk}\",\"count\""
+  close $out
+  puts "RM-Info: clock_gating cells=${elements} gated_regs=${gated} ungated_regs=${ungated} icg_refs=${icg_refs}"
+  if {![string is integer -strict $elements] || $elements <= 0 ||
+      ![string is integer -strict $gated] || $gated <= 0} {
+    error "clock gating requested but no ICG cells were inserted (elements=${elements} gated=${gated})"
+  }
+  if {$icg_count <= 0} {
+    error "clock gating requested but no library ICG cells were found in the mapped netlist"
+  }
+}
+proc ss28_dump_saif_coverage {power_dir pulse} {
+  set saif_rpt [file join $power_dir ${pulse}ns.saif.rpt]
+  catch {redirect $saif_rpt {report_saif}}
+  catch {redirect [file join $power_dir ${pulse}ns.saif_missing.rpt] {report_saif -missing}}
+  catch {redirect [file join $power_dir ${pulse}ns.switching.rpt] {report_switching_activity}}
+  set lfsr_cells [get_cells -quiet -hierarchical -filter {full_name =~ *VALUE_reg*}]
+  set total [sizeof_collection $lfsr_cells]
+  set annotated 0
+  foreach_in_collection cell $lfsr_cells {
+    set tog {}
+    catch {set tog [get_attribute -quiet $cell toggle_rate]}
+    if {$tog ne {} && $tog != 0 && $tog != 0.0} {
+      incr annotated
+    }
+  }
+  set csv [file join $power_dir ${pulse}ns.rng_coverage.csv]
+  set out [open $csv w]
+  puts $out "metric,value,unit"
+  puts $out "\"lfsr_registers_total\",\"${total}\",\"count\""
+  puts $out "\"lfsr_registers_toggle_nonzero\",\"${annotated}\",\"count\""
+  puts $out "\"lfsr_registers_default_zero\",\"[expr {$total - $annotated}]\",\"count\""
+  close $out
+  puts "RM-Info: LFSR VALUE regs total=${total} toggle_nonzero=${annotated}"
+  return [list $total $annotated]
+}
 proc ss28_try_read_saif {saif_file} {
   if {[info exists ::env(SAIF_INSTANCE)] && $::env(SAIF_INSTANCE) ne ""} {
     set instance $::env(SAIF_INSTANCE)
@@ -1507,6 +1595,15 @@ proc ss28_report_tb_energy {} {
       incr failures
       continue
     }
+    set lfsr_cov [list 0 0]
+    catch {set lfsr_cov [ss28_dump_saif_coverage $power_dir $pulse]}
+    set lfsr_total [lindex $lfsr_cov 0]
+    set lfsr_annot [lindex $lfsr_cov 1]
+    if {$lfsr_total > 0 && $lfsr_annot == 0} {
+      ss28_write_power_summary $summary [list status FAIL none error lfsr_activity_unannotated none pulse_time_ns $pulse ns saif_file $saif_file path saif_instance $instance path lfsr_registers_total $lfsr_total count lfsr_registers_toggle_nonzero $lfsr_annot count]
+      incr failures
+      continue
+    }
     if {[catch {redirect $report {report_power -nosplit}} err]} {
       ss28_write_power_summary $summary [list status FAIL none error $err none pulse_time_ns $pulse ns saif_file $saif_file path saif_instance $instance path]
       incr failures
@@ -1551,6 +1648,9 @@ proc ss28_report_tb_energy {} {
     incr failures
   }
   return $failures
+}
+if {[catch {ss28_require_clock_gating} ss28_cg_error]} {
+  puts "RM-Error: ${ss28_cg_error}"
 }
 puts "RM-Info: SS28 post-map power begin"
 set ss28_power_failures 0

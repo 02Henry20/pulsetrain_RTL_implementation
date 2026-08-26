@@ -205,6 +205,7 @@ while IFS=$'\t' read -r \
                 "-pvalue+TB_REPLAY.OUTPUT_BUFFER_DEPTH=${OUTPUT_BUFFER_DEPTH}" \
                 "-pvalue+TB_REPLAY.DIGITAL_CLOCK_NS=${DIGITAL_CLOCK_NS}" \
                 "-pvalue+TB_REPLAY.LFSR_SEED=${LFSR_SEED}" \
+                "-pvalue+TB_REPLAY.USE_SHARED_LFSR=$([[ "${rng_family}" == shared_lfsr ]] && echo 1 || echo 0)" \
                 -debug_access+r \
                 -o "${sim_dir}/simv"
         ) >"${compile_log}" 2>&1; then
@@ -237,7 +238,8 @@ while IFS=$'\t' read -r \
                     "+EXPECT_SORT=${expect_sort}" \
                     "+EXPECT_ZERO_DELETE=${expect_zero_delete}" \
                     "+EXPECT_BASELINE=${expect_baseline}" \
-                    "+SAIF_FILE=tb.saif"
+                    "+SAIF_FILE=tb.saif" \
+                    "+RNG_STATS_FILE=${PER_UPDATE_DIR}/${input_id}/${arch}_${pulse}ns.rng.csv"
                ) >"${sim_log}" 2>&1 &&
                grep -q '^RESULT: PASS' "${sim_log}" &&
                [[ -s "${saif_dump}" ]] &&

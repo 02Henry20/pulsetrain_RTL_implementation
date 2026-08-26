@@ -66,14 +66,11 @@ module ARCH_TOP #(
     wire [CROSSBAR_DIMENSION-1:0] d_pulses_generated;
     genvar random_lane;
 
-    // Shared mode contains exactly one LFSR. X sees its current word and D sees
-    // the same sequence two accepted candidate positions later. The two reset
-    // history words are deterministic and deliberately distinct from the seed.
+    // RNG state is always elaborated so replay SAIF maps onto the synthesized
+    // LFSR hierarchy. RAW_REPLAY_MODE only selects who drives the pulse wires:
+    // realized AIHWKIT bits (latency/power datapath) vs LFSR comparators (synth).
     generate
-        if (RAW_REPLAY_MODE != 0) begin : GEN_RAW_REPLAY
-            assign x_pulses_generated = X_RAW_PULSES_IN;
-            assign d_pulses_generated = D_RAW_PULSES_IN;
-        end else if (USE_SHARED_LFSR) begin : GEN_SHARED_LFSR
+        if (USE_SHARED_LFSR) begin : GEN_SHARED_LFSR
             wire [STOCHASTIC_VALUE_WIDTH-1:0] lfsr_value;
             reg  [STOCHASTIC_VALUE_WIDTH-1:0] d_delay_1;
             reg  [STOCHASTIC_VALUE_WIDTH-1:0] d_delay_2;
@@ -96,20 +93,25 @@ module ARCH_TOP #(
                 end
             end
 
-            PULSE_GENERATOR_LFSR #(
-                .CROSSBAR_DIMENSION(CROSSBAR_DIMENSION),
-                .STOCHASTIC_VALUE_WIDTH(STOCHASTIC_VALUE_WIDTH)
-            ) pulse_generator_x (
-                .LFSR_VALUE(lfsr_value), .INPUT_VALUES(X_INPUT_VALUES),
-                .PULSES(x_pulses_generated)
-            );
-            PULSE_GENERATOR_LFSR #(
-                .CROSSBAR_DIMENSION(CROSSBAR_DIMENSION),
-                .STOCHASTIC_VALUE_WIDTH(STOCHASTIC_VALUE_WIDTH)
-            ) pulse_generator_d (
-                .LFSR_VALUE(d_delay_2), .INPUT_VALUES(D_INPUT_VALUES),
-                .PULSES(d_pulses_generated)
-            );
+            if (RAW_REPLAY_MODE != 0) begin : GEN_RAW_PULSES
+                assign x_pulses_generated = X_RAW_PULSES_IN;
+                assign d_pulses_generated = D_RAW_PULSES_IN;
+            end else begin : GEN_STOCHASTIC_PULSES
+                PULSE_GENERATOR_LFSR #(
+                    .CROSSBAR_DIMENSION(CROSSBAR_DIMENSION),
+                    .STOCHASTIC_VALUE_WIDTH(STOCHASTIC_VALUE_WIDTH)
+                ) pulse_generator_x (
+                    .LFSR_VALUE(lfsr_value), .INPUT_VALUES(X_INPUT_VALUES),
+                    .PULSES(x_pulses_generated)
+                );
+                PULSE_GENERATOR_LFSR #(
+                    .CROSSBAR_DIMENSION(CROSSBAR_DIMENSION),
+                    .STOCHASTIC_VALUE_WIDTH(STOCHASTIC_VALUE_WIDTH)
+                ) pulse_generator_d (
+                    .LFSR_VALUE(d_delay_2), .INPUT_VALUES(D_INPUT_VALUES),
+                    .PULSES(d_pulses_generated)
+                );
+            end
         end else begin : GEN_PER_INPUT_LFSRS
             wire [CROSSBAR_DIMENSION*STOCHASTIC_VALUE_WIDTH-1:0] x_random_values;
             wire [CROSSBAR_DIMENSION*STOCHASTIC_VALUE_WIDTH-1:0] d_random_values;
@@ -135,20 +137,25 @@ module ARCH_TOP #(
                 );
             end
 
-            PULSE_GENERATOR #(
-                .CROSSBAR_DIMENSION(CROSSBAR_DIMENSION),
-                .STOCHASTIC_VALUE_WIDTH(STOCHASTIC_VALUE_WIDTH)
-            ) pulse_generator_x (
-                .RANDOM_VALUES(x_random_values), .INPUT_VALUES(X_INPUT_VALUES),
-                .PULSES(x_pulses_generated)
-            );
-            PULSE_GENERATOR #(
-                .CROSSBAR_DIMENSION(CROSSBAR_DIMENSION),
-                .STOCHASTIC_VALUE_WIDTH(STOCHASTIC_VALUE_WIDTH)
-            ) pulse_generator_d (
-                .RANDOM_VALUES(d_random_values), .INPUT_VALUES(D_INPUT_VALUES),
-                .PULSES(d_pulses_generated)
-            );
+            if (RAW_REPLAY_MODE != 0) begin : GEN_RAW_PULSES
+                assign x_pulses_generated = X_RAW_PULSES_IN;
+                assign d_pulses_generated = D_RAW_PULSES_IN;
+            end else begin : GEN_STOCHASTIC_PULSES
+                PULSE_GENERATOR #(
+                    .CROSSBAR_DIMENSION(CROSSBAR_DIMENSION),
+                    .STOCHASTIC_VALUE_WIDTH(STOCHASTIC_VALUE_WIDTH)
+                ) pulse_generator_x (
+                    .RANDOM_VALUES(x_random_values), .INPUT_VALUES(X_INPUT_VALUES),
+                    .PULSES(x_pulses_generated)
+                );
+                PULSE_GENERATOR #(
+                    .CROSSBAR_DIMENSION(CROSSBAR_DIMENSION),
+                    .STOCHASTIC_VALUE_WIDTH(STOCHASTIC_VALUE_WIDTH)
+                ) pulse_generator_d (
+                    .RANDOM_VALUES(d_random_values), .INPUT_VALUES(D_INPUT_VALUES),
+                    .PULSES(d_pulses_generated)
+                );
+            end
         end
     endgenerate
 

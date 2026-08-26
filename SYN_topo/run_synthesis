@@ -93,6 +93,26 @@ if ($status != 0) then
     echo "ERROR: synthesized configuration lacks pulse-generator hierarchy"
     exit 1
 endif
+set CG_SUMMARY = "${REPORTS_DIR}/clock_gating.summary.csv"
+if (! -e "${CG_SUMMARY}") then
+    echo "ERROR: missing clock gating summary: ${CG_SUMMARY}"
+    exit 1
+endif
+grep -q 'clock_gating_cells","[1-9]' "${CG_SUMMARY}"
+if ($status != 0) then
+    echo "ERROR: clock gating requested but no ICG cells were inserted; see ${CG_SUMMARY}"
+    exit 1
+endif
+set MAPPED_V = "${RESULTS_DIR}/TOP.mapped.v"
+if (! -e "${MAPPED_V}") then
+    echo "ERROR: missing mapped netlist: ${MAPPED_V}"
+    exit 1
+endif
+set ICG_HITS = `grep -Ec 'PREICG|ICG_|CKLN' "${MAPPED_V}"`
+if ($status != 0) then
+    set ICG_HITS = 0
+endif
+echo "INFO: mapped netlist ICG-like instance lines: ${ICG_HITS}"
 
 # Keep synthesis QoR distinct from post-map power.  Exit 2 means the mapped
 # design and its area/timing reports are valid, but one or more requested SAIF
